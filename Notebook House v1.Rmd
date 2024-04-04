@@ -1,0 +1,134 @@
+---
+title: "R Notebook for the Housepricing Comp"
+output: html_notebook
+---
+
+```{r admin, include = FALSE}
+##clean out the space
+rm(list=ls())
+
+##What do we need
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+#install.packages("DataExplorer")
+library(DataExplorer)
+
+#Where will we work
+getwd()
+setwd("C:/Users/helen/Documents/Kaggle/HousePrice")
+
+```
+
+The Data explorer package is great for a first stab at unseen data. First things first;
+
+-   The dependent variable - the thing we want to predict - is continuous --\> regression problem
+    -   GLM: Gamma with Log, Inverse or Identity link
+    -   Regression Tree
+    -   Random Forrest Reg Tree
+-   Not normally distributed --\> important to match the algo to the distribution transformation
+    -   Gool ol' OLS with a transformation?
+-   Loads of missing data to remedy
+    -   Which means we should add the test and train sets together - to save effort when scoring & validating
+
+```{r EDA}
+
+train<-read.csv("train.csv")
+
+train['Type']<-'train_set'
+
+test<-read.csv("test.csv")
+test['SalePrice'] <- 100
+test['Type']<-'test_set'
+
+data<-rbind(train,test)
+
+create_report(train)
+create_report(data)
+plot_intro(data)
+plot_missing(data)
+```
+
+Start by filling in the missing data and running some correlation plots to understand the multicollinearity;
+
+-   By completing the NA values we drop from 5.8% missing observations to 0.33%
+
+-   The remaining two significantly missing values are for
+
+    -   LotFrontage and
+
+    -   Garage built
+
+-   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so lets start by plugging the values with 0 for LotFrontage but perhaps check different values for future submissions, and the Garage built to 3000 to represent the future.
+
+```{r CleanupandFill}
+#Fill in the NA's where they represent 'None Present' with 'Non' 
+
+data_f<-data %>%
+  replace_na(list(Alley = "Non", BsmtQual = "Non", BsmtExposure = "Non",
+                  BsmtCond= "Non", BsmtFinType1="Non", BsmtFinType2="Non",
+                  FireplaceQu = "Non", GarageType = "Non",GarageFinish = "Non",
+                  GarageQual="Non", GarageCond="Non", 
+                  PoolQC="Non", Fence = "None", GarageQual="Non", 
+                  GarageCond = "Non", PoolQC = "Non", MiscFeature = "Non"))
+
+data_f<-data_f %>%
+  replace_na(list(LotFrontage = 0, 
+                  GarageYrBlt = 3000))
+
+#create_report(data_f)
+plot_intro(data_f)
+plot_missing(data_f)
+
+#training set
+data_f_t<-subset(data_f, Type=="train_set")            
+data_f_t<-subset(data_f_t, is.na(MasVnrType) == FALSE )
+data_f_t<-subset(data_f_t, is.na(Electrical) == FALSE )
+
+plot_intro(data_f_t)
+plot_missing(data_f_t)  
+create_report(data_f_t)
+
+
+```
+
+The remaining missing rows for the training data set can't be explained. Let's drop these rows from the training set to run our first few models
+
+```{r DependentExploration}
+
+ggplot(data_f_t, aes(x=SalePrice))+
+  geom_density(aes(x=SalePrice, y=..density..))
+# Chart
+p <- ggplot(data, aes(x=x) ) +
+  # Top
+  geom_density( aes(x = var1, y = ..density..), fill="#69b3a2" ) +
+  geom_label( aes(x=4.5, y=0.25, label="variable1"), color="#69b3a2") +
+  # Bottom
+  geom_density( aes(x = var2, y = -..density..), fill= "#404080") +
+  geom_label( aes(x=4.5, y=-0.25, label="variable2"), color="#404080") +
+  theme_ipsum() +
+  xlab("value of x")
+
+```
+
+These are unused codes
+
+```{r}
+library(sqldf)
+sqldf("Select * from data_f where MasVnrType is null")
+
+c<-sqldf("Select MSZoning, MSSubClass, count(*) from missing
+group by MSZoning,MSSubClass
+      ")
+
+FV<-sqldf("Select MSZoning, Street, count(*) total, sum(case when LotFrontage is null then 1 else 0 end) count_missing
+          from data_f
+          group by 1,2")
+
+FV<-sqldf("Select *, sum(count_missing)/sum(total) from FV")
+#create_report(data)
+```
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
