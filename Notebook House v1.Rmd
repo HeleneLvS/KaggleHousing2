@@ -6,13 +6,18 @@ output: html_notebook
 ```{r admin, include = FALSE}
 ##clean out the space
 rm(list=ls())
+options(scipen=999)
 
 ##What do we need
 library(tidyr)
 library(tidyverse)
+library(dplyr)
 library(ggplot2)
+library(cowplot) # plot different ggplots next to each other
 #install.packages("DataExplorer")
 library(DataExplorer)
+library(corrplot)
+library(pscl) # For Pseudo R squareds on GLMS
 
 #Where will we work
 getwd()
@@ -20,7 +25,7 @@ setwd("C:/Users/helen/Documents/Kaggle/HousePrice")
 
 ```
 
-The Data explorer package is great for a first stab at unseen data. First things first;
+The Data explorer package is great for a first stab at unknown data. First things first;
 
 -   The dependent variable - the thing we want to predict - is continuous --\> regression problem
     -   GLM: Gamma with Log, Inverse or Identity link
@@ -38,13 +43,13 @@ train<-read.csv("train.csv")
 train['Type']<-'train_set'
 
 test<-read.csv("test.csv")
-test['SalePrice'] <- 100
+test['SalePrice'] <- NA
 test['Type']<-'test_set'
 
 data<-rbind(train,test)
 
-create_report(train)
-create_report(data)
+#create_report(train)
+#create_report(data)
 plot_intro(data)
 plot_missing(data)
 ```
@@ -80,6 +85,87 @@ data_f<-data_f %>%
 plot_intro(data_f)
 plot_missing(data_f)
 
+
+data_fg<-data_f
+data_fg$MSSubClass<-as.factor(data_fg$MSSubClass)
+data_fg$HouseStyle<-as.factor(data_fg$HouseStyle)
+
+#subset(data_fg,SaleType=="Other")
+b<-ggplot(data=data_fg, aes(x=MSSubClass, y=SalePrice))+
+  geom_boxplot()
+
+bb<-ggplot(data=data_fg, aes(x=HouseStyle, y=SalePrice))+
+  geom_boxplot()
+
+g<-ggplot(data=data_fg, aes(x=MSSubClass) )+
+  geom_bar() 
+
+gg<-ggplot(data=data_fg, aes(x=HouseStyle) )+
+  geom_bar() 
+
+plot_grid(g, b, ncol = 2, nrow = 1)
+
+plot_grid(gg, bb, ncol = 2, nrow = 1)
+
+ggplot(data=data_fg, aes(x=MSSubClass, fill = HouseStyle, y = 1 ) )+
+  geom_bar(position="fill", stat="identity") 
+
+data_fg$Era<-case_when(data_fg$MSSubClass == 20 ~ 'Newer',
+                   data_fg$MSSubClass == 60 ~ 'Newer',
+                   data_fg$MSSubClass == 120 ~ 'Newer',  
+                   data_fg$MSSubClass == 160 ~ 'Newer',
+                     data_fg$MSSubClass == 30 ~ 'Older',
+                     data_fg$MSSubClass == 70 ~ 'Older',
+                   TRUE ~ 'NoAgeDifferentiation'  )
+
+g1 <- ggplot(data=data_fg, aes(x=Era) )+
+  geom_bar() 
+
+g2 <-ggplot(data=data_fg, aes(x=Era, y=SalePrice))+
+  geom_boxplot()
+
+plot_grid(g1, g2, ncol = 2, nrow = 1)
+
+```
+
+```{r REGROUPING}
+##Regroup poorly represented factor levels
+data_fg<-data_f
+#Resulting factor changes
+data_fg$Era<-case_when(data_fg$MSSubClass == 20 ~ 'Newer',
+                   data_fg$MSSubClass == 60 ~ 'Newer',
+                   data_fg$MSSubClass == 120 ~ 'Newer',  
+                   data_fg$MSSubClass == 160 ~ 'Newer',
+                     data_fg$MSSubClass == 30 ~ 'Older',
+                     data_fg$MSSubClass == 70 ~ 'Older',
+                   TRUE ~ 'NoAgeDifferentiation'  )
+
+data_fg$MSZoning<-as.factor(case_when(data_fg$MSZoning ==  "C (all)"  ~ "C (all)",
+                            data_fg$MSZoning =="FV" ~ "FV",
+                            data_fg$MSZoning == "RL" ~ "RL/RP",
+                            data_fg$MSZoning == "RP" ~ "RL/RP",
+                            TRUE ~'Other'))
+data_fg$MSZoning <-fct_reorder(data_fg$MSZoning, data_fg$SalePrice)
+
+data_fg$SaleType<-as.factor(case_when(data_fg$SaleType == 'COD' ~ 'COD',
+          data_fg$SaleType == 'Con' ~ 'GCon', #Contract grouped
+          data_fg$SaleType == 'ConLw' ~ 'GCon',
+          data_fg$SaleType == 'ConLI' ~ 'GCon',
+          data_fg$SaleType == 'ConLD' ~ 'GCon',
+          data_fg$SaleType == 'New' ~ 'New',
+          data_fg$SaleType == 'WD' ~ 'GWD',
+          data_fg$SaleType == 'CWD' ~ 'GWD',
+          data_fg$SaleType == 'VWD' ~ 'GWD',
+          TRUE ~'Other'
+          ))
+data_fg$SaleType<-(fct_reorder(data_fg$SaleType, data_fg$SalePrice))
+```
+
+remaining missing rows for the training data set can't be explained. Let's drop these rows from the training set to run our first few models. The new plots show we have a complete data set
+
+```{r FillingInMissing}
+subset(mcd, is.na(MSZoning) == TRUE )
+
 #training set
 data_f_t<-subset(data_f, Type=="train_set")            
 data_f_t<-subset(data_f_t, is.na(MasVnrType) == FALSE )
@@ -87,29 +173,117 @@ data_f_t<-subset(data_f_t, is.na(Electrical) == FALSE )
 
 plot_intro(data_f_t)
 plot_missing(data_f_t)  
-create_report(data_f_t)
+#create_report(data_f_t)
 
 
 ```
 
-The remaining missing rows for the training data set can't be explained. Let's drop these rows from the training set to run our first few models
+The correlation heatmap from the ExploratoryData package's report is too dense to read properly. For a parameterised model multicollinearity is not good at all.
 
-```{r DependentExploration}
+```{r MULTICOLLINEARITY}
+factorNames <- c('MSSubClass', 'MSZoning')
+data_f <- data_f %>%
+  mutate(across(factorNames, as.factor))
+
+str(data_f)
+
+data_f<-
+mcd<-data_f[,c(2:3,81)]
+plot_correlation(mcd)
+plot_correlation(mcd$MSZoning)
+
+b1<-ggplot(data=mcd, aes(x=MSSubClass, y=SalePrice))+
+  geom_boxplot()
+
+b2<-ggplot(data=mcd, aes(x=MSZoning, y=SalePrice))+
+  geom_boxplot()
+
+g1<-ggplot(data=mcd, aes(x=MSSubClass) )+
+  geom_bar() 
+
+g2<-ggplot(data=mcd, aes(x=MSZoning) )+
+  geom_bar() 
+
+plot_grid(b1, g1, ncol = 2, nrow = 1)
+plot_grid(b2, g2, ncol = 2, nrow = 1)
+
+subset(mcd, is.na(MSZoning) == TRUE )
+```
+
+```{r DependentDistributionExploration}
 
 ggplot(data_f_t, aes(x=SalePrice))+
   geom_density(aes(x=SalePrice, y=..density..))
-# Chart
-p <- ggplot(data, aes(x=x) ) +
-  # Top
-  geom_density( aes(x = var1, y = ..density..), fill="#69b3a2" ) +
-  geom_label( aes(x=4.5, y=0.25, label="variable1"), color="#69b3a2") +
-  # Bottom
-  geom_density( aes(x = var2, y = -..density..), fill= "#404080") +
-  geom_label( aes(x=4.5, y=-0.25, label="variable2"), color="#404080") +
-  theme_ipsum() +
-  xlab("value of x")
+
+data_f_t$logPrice<-log(data_f_t$SalePrice)
+
+ggplot(data_f_t)+
+  geom_density(aes(x=logPrice, y=..density..))
+
 
 ```
+
+The natural log transform does seem to make the dependent variable more symmetrical. Lets explore the three GLMs (Gamma:log, Gamma:inv, gamma:id) with a forward stepwise variable selection to decide which GLM is best
+
+In terms of the model selevction we need a good balance between Mcfadden's pseudo R-square, Nagelkerke's R-square and plain R-square. As expected the McF's R2 is severely penalised due to too many parameters.
+
+```{r}
+library(stats)
+library(caTools)
+
+str(data_f_t)
+#We need to remove the variables we do not want to use in the model;
+data_f_t<-data_f_t[,2:81]
+set.seed(101) 
+sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
+T_Train = subset(data_f_t, sample == TRUE)
+T_Val  = subset(data_f_t, sample == FALSE)
+
+
+glm.M1<-glm(SalePrice~.,
+            family=Gamma(link = "log"),
+            data    = T_Train)
+
+with(summary(glm.M1), 1 - deviance/null.deviance)
+format( pR2(glm.M1), scientific = FALSE)
+#summary(glm.M1)
+
+step_gamma_glm<-step(glm.M1)
+step_gamma_glm$aic
+step_gamma_glm$anova
+step_gamma_glm$finalModel
+
+x<-step_gamma_glm$model
+yhat<-step_gamma_glm$fitted.values
+y<-T_Train$SalePrice
+fitted<-as.data.frame(cbind(yhat,y))
+
+finalModel<-glm(formula = SalePrice ~ MSZoning + LotArea + Street + LandContour + 
+    Utilities + LotConfig + LandSlope + Neighborhood + Condition1 + 
+    Condition2 + BldgType + OverallQual + OverallCond + YearBuilt + 
+    YearRemodAdd + RoofMatl + Exterior1st + MasVnrArea + ExterCond + 
+    Foundation + BsmtExposure + BsmtFinSF1 + BsmtFinSF2 + BsmtUnfSF + 
+    Heating + HeatingQC + CentralAir + X1stFlrSF + X2ndFlrSF + 
+    LowQualFinSF + BsmtFullBath + FullBath + HalfBath + KitchenAbvGr + 
+    KitchenQual + TotRmsAbvGrd + Functional + Fireplaces + GarageYrBlt + 
+    GarageCars + GarageArea + GarageQual + GarageCond + WoodDeckSF + 
+    EnclosedPorch + X3SsnPorch + ScreenPorch + PoolArea + PoolQC + 
+    Fence + SaleType + SaleCondition, family = Gamma(link = "log"), 
+    data = T_Train)
+summary(finalModel)
+
+
+
+valResult<-predict(finalModel,T_Val)
+
+ggplot(fitted, aes(x=yhat, y=y))+
+  geom_jitter()+
+  geom_line(aes(x=y, y=y))
+
+mse
+```
+
+After that we will do some feature engineering to see if there is an improvement
 
 These are unused codes
 
@@ -127,6 +301,12 @@ FV<-sqldf("Select MSZoning, Street, count(*) total, sum(case when LotFrontage is
 
 FV<-sqldf("Select *, sum(count_missing)/sum(total) from FV")
 #create_report(data)
+
+
+VIOLIN PLOT
+vp1 <- ggplot(mcd, aes(x=MSSubClass, y=SalePrice)) +
+  geom_violin()+
+  geom_boxplot(width=0.1)
 ```
 
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
