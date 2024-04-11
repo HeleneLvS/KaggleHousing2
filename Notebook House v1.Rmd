@@ -64,40 +64,123 @@ Start by filling in the missing data and running some correlation plots to under
 
     -   Garage built
 
--   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so lets start by plugging the values with 0 for LotFrontage but perhaps check different values for future submissions, and the Garage built to 3000 to represent the future.
+-   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so an alternative is to build a model on LotFrontage as a factor of LotConfig and LotArea. On closer inspection imputing missings with 0's ruins a pretty nice linear correlation between SalePrice and LotFrontage so lets start with the model. Garage built will be imputed with 3000 to represent the future.
 
-```{r CleanupandFill}
-#Fill in the NA's where they represent 'None Present' with 'Non' 
+    ```{r CleanupandFill}
+    #Fill in the NA's where they represent 'None Present' with 'Non' 
 
-data_f<-data %>%
-  replace_na(list(Alley = "Non", BsmtQual = "Non", BsmtExposure = "Non",
-                  BsmtCond= "Non", BsmtFinType1="Non", BsmtFinType2="Non",
-                  FireplaceQu = "Non", GarageType = "Non",GarageFinish = "Non",
-                  GarageQual="Non", GarageCond="Non", 
-                  PoolQC="Non", Fence = "None", GarageQual="Non", 
-                  GarageCond = "Non", PoolQC = "Non", MiscFeature = "Non"))
-
-data_f<-data_f %>%
-  replace_na(list(LotFrontage = 0, 
-                  GarageYrBlt = 3000))
-
-#create_report(data_f)
-plot_intro(data_f)
-plot_missing(data_f)
+    data_f<-data %>%
+      replace_na(list(Alley = "Non", BsmtQual = "Non", BsmtExposure = "Non",
+                      BsmtCond= "Non", BsmtFinType1="Non", BsmtFinType2="Non",
+                      FireplaceQu = "Non", GarageType = "Non",GarageFinish = "Non",
+                      GarageQual="Non", GarageCond="Non", 
+                      PoolQC="Non", Fence = "None", GarageQual="Non", 
+                      GarageCond = "Non", PoolQC = "Non", MiscFeature = "Non"))
 
 
+    data_f<-data_f %>% 
+      replace_na(list(GarageYrBlt = 3000))
+    ## Add this bit for another set: LotFrontage = 0, if the above gives a poor result
+    ## Predict the LotFrontage based on total sqft and Configuration of the lot with m3
+    data_ltz<-subset(data_f, LotFrontage > 0)  
+    m3 <- glm(LotFrontage~LotArea+LotConfig, Gamma(link="log"), data = data_ltz)       
+    data_f$LotFrontageHat<- predict(m3,data_f,type="response")        
+    data_f$LotFrontageHat<-case_when(data_f$LotFrontageHat >= 200 ~ 225,
+                                  TRUE ~data_f$LotFrontageHat)
+
+    data_f$LotFrontage<-data_f$LotFrontageHat
+    ####*******************START************************############
+    ##ADD THIS TO A NEW NOTEBOOK TO LOAD FOR IMPUTATION
+    #imputedLFH<-data_f[,c(4,83,81)]
+    #im1<-subset(imputedLFH, is.na(LotFrontage) == TRUE)
+    #im2<-subset(imputedLFH, is.na(LotFrontage) == FALSE)
+    #im3<-im1
+    #im3$LotFrontageHat<-case_when(im3$LotFrontageHat >= 200 ~ 225,
+    #                              TRUE ~im3$LotFrontageHat)
+    #w1<-ggplot(data=im2,aes(x=LotFrontage, y=SalePrice))+
+    #  geom_point()+
+    #  geom_smooth()
+
+    #w2<-ggplot(data=im1, aes(x=LotFrontageHat, y=SalePrice))+
+    #  geom_point()+
+    #  geom_smooth()
+
+    #w3<-ggplot(data=im3, aes(x=LotFrontageHat, y=SalePrice))+
+    #  geom_point()+
+    #  geom_smooth()
+
+    #plot_grid(w1,w2, w3)
+    ###############################END################################
+
+
+    #create_report(data_f)
+    plot_intro(data_f)
+    plot_missing(data_f)
+    ```
+
+```{r Rondtossery}
+
+
+####DELETE HERE
 data_fg<-data_f
-data_fg$MSSubClass<-as.factor(data_fg$MSSubClass)
-data_fg$HouseStyle<-as.factor(data_fg$HouseStyle)
+
+data_f_t<-subset(data_f, Type=="train_set")  
+
+f1<-ggplot(data=data_f, aes(x=LotFrontage, y=SalePrice))+
+  geom_point(aes(col = LotConfig))+
+  geom_smooth()
+
+ 
+#NO MISSING FILLED
+f2<-ggplot(data=data_ltz, aes(x=LotFrontage, y=SalePrice))+
+  geom_point(aes(col = LotConfig))+
+  geom_smooth()
+  
+f3<-ggplot(data=data_ltz, aes(x=LotFrontage, y=LotArea))+
+  geom_point(aes(col = LotConfig))+
+  geom_smooth()
+
+plot_grid(f1,f2, f3)
+
+summary(lm(LotFrontage~LotArea+LotConfig, data = data_ltz))
+format( pR2(lm(LotFrontage~LotArea+LotConfig, data = data_ltz)), scientific = FALSE)
+summary(lm(log(LotFrontage)~LotArea+LotConfig, data = data_ltz))
+
+m3<-(glm(LotFrontage~LotArea+LotConfig, Gamma(link="log"), data = data_ltz))
+with(summary(m3), 1 - deviance/null.deviance)
+
+format( pR2(m3), scientific = FALSE)
+
+ggplot(data_ltz, aes(x=(LotFrontage)))+
+  geom_density(aes(x=(LotFrontage), y=..density..))
+
+
+
+glm.t1<-glm(SalePrice~LotFrontage,
+            family=Gamma(link = "log"),
+            data  =data_f_t )
+glm.t2<-glm(SalePrice~LotConfig,
+            family=Gamma(link = "log"),
+            data  =data_f_t )
+
+bsh<-ggplot(data=data_ltz, aes(x=LotShape, y=SalePrice))+
+  geom_boxplot()
+
+ggplot(data=data_ltz, aes(x=LotShape))+
+  geom_bar()
+
+with(summary(glm.t1), 1 - deviance/null.deviance)
+with(summary(glm.t2), 1 - deviance/null.deviance)
+format( pR2(glm.t1), scientific = FALSE)
 
 #subset(data_fg,SaleType=="Other")
-b<-ggplot(data=data_fg, aes(x=MSSubClass, y=SalePrice))+
+b<-ggplot(data=data_f, aes(x=Utilities, y=SalePrice))+
   geom_boxplot()
 
-bb<-ggplot(data=data_fg, aes(x=HouseStyle, y=SalePrice))+
+bb<-ggplot(data=data_f, aes(x=Utilities, y=SalePrice))+
   geom_boxplot()
 
-g<-ggplot(data=data_fg, aes(x=MSSubClass) )+
+g<-ggplot(data=data_f, aes(x=Utilities) )+
   geom_bar() 
 
 gg<-ggplot(data=data_fg, aes(x=HouseStyle) )+
@@ -109,19 +192,13 @@ plot_grid(gg, bb, ncol = 2, nrow = 1)
 
 ggplot(data=data_fg, aes(x=MSSubClass, fill = HouseStyle, y = 1 ) )+
   geom_bar(position="fill", stat="identity") 
+levels(as.factor(data_fg$HouseStyle))
 
-data_fg$Era<-case_when(data_fg$MSSubClass == 20 ~ 'Newer',
-                   data_fg$MSSubClass == 60 ~ 'Newer',
-                   data_fg$MSSubClass == 120 ~ 'Newer',  
-                   data_fg$MSSubClass == 160 ~ 'Newer',
-                     data_fg$MSSubClass == 30 ~ 'Older',
-                     data_fg$MSSubClass == 70 ~ 'Older',
-                   TRUE ~ 'NoAgeDifferentiation'  )
 
-g1 <- ggplot(data=data_fg, aes(x=Era) )+
+g1 <- ggplot(data=data_fg, aes(x=Stories) )+
   geom_bar() 
 
-g2 <-ggplot(data=data_fg, aes(x=Era, y=SalePrice))+
+g2 <-ggplot(data=data_fg, aes(x=Stories, y=SalePrice))+
   geom_boxplot()
 
 plot_grid(g1, g2, ncol = 2, nrow = 1)
@@ -130,35 +207,48 @@ plot_grid(g1, g2, ncol = 2, nrow = 1)
 
 ```{r REGROUPING}
 ##Regroup poorly represented factor levels
-data_fg<-data_f
+data_fg<-data_f[,81:82]
 #Resulting factor changes
-data_fg$Era<-case_when(data_fg$MSSubClass == 20 ~ 'Newer',
-                   data_fg$MSSubClass == 60 ~ 'Newer',
-                   data_fg$MSSubClass == 120 ~ 'Newer',  
-                   data_fg$MSSubClass == 160 ~ 'Newer',
-                     data_fg$MSSubClass == 30 ~ 'Older',
-                     data_fg$MSSubClass == 70 ~ 'Older',
+data_fg$Era<-case_when(data_f$MSSubClass == 20 ~ 'Newer',
+                   data_f$MSSubClass == 60 ~ 'Newer',
+                   data_f$MSSubClass == 120 ~ 'Newer',  
+                   data_f$MSSubClass == 160 ~ 'Newer',
+                     data_f$MSSubClass == 30 ~ 'Older',
+                     data_f$MSSubClass == 70 ~ 'Older',
                    TRUE ~ 'NoAgeDifferentiation'  )
 
-data_fg$MSZoning<-as.factor(case_when(data_fg$MSZoning ==  "C (all)"  ~ "C (all)",
-                            data_fg$MSZoning =="FV" ~ "FV",
-                            data_fg$MSZoning == "RL" ~ "RL/RP",
-                            data_fg$MSZoning == "RP" ~ "RL/RP",
+data_fg$MSZoning<-as.factor(case_when(data_f$MSZoning ==  "C (all)"  ~ "C (all)",
+                            data_f$MSZoning =="FV" ~ "FV",
+                            data_f$MSZoning == "RL" ~ "RL/RP",
+                            data_f$MSZoning == "RP" ~ "RL/RP",
                             TRUE ~'Other'))
 data_fg$MSZoning <-fct_reorder(data_fg$MSZoning, data_fg$SalePrice)
 
-data_fg$SaleType<-as.factor(case_when(data_fg$SaleType == 'COD' ~ 'COD',
-          data_fg$SaleType == 'Con' ~ 'GCon', #Contract grouped
-          data_fg$SaleType == 'ConLw' ~ 'GCon',
-          data_fg$SaleType == 'ConLI' ~ 'GCon',
-          data_fg$SaleType == 'ConLD' ~ 'GCon',
-          data_fg$SaleType == 'New' ~ 'New',
-          data_fg$SaleType == 'WD' ~ 'GWD',
-          data_fg$SaleType == 'CWD' ~ 'GWD',
-          data_fg$SaleType == 'VWD' ~ 'GWD',
+data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
+                          data_f$HouseStyle == "1.5Fin" ~ "1.5", 
+                          data_f$HouseStyle =="1.5Unf" ~ "1.5",
+                          data_f$HouseStyle == "2Story" ~ "2.0",          
+                          data_f$HouseStyle == "2.5Fin" ~ "2.5",
+                          data_f$HouseStyle == "2.5Unf" ~ "2.5",  
+                          TRUE ~ 'Other'  ))
+
+data_fg$SaleType<-as.factor(case_when(data_f$SaleType == 'COD' ~ 'COD',
+          data_f$SaleType == 'Con' ~ 'GCon', #Contract grouped
+          data_f$SaleType == 'ConLw' ~ 'GCon',
+          data_f$SaleType == 'ConLI' ~ 'GCon',
+          data_f$SaleType == 'ConLD' ~ 'GCon',
+          data_f$SaleType == 'New' ~ 'New',
+          data_f$SaleType == 'WD' ~ 'GWD',
+          data_f$SaleType == 'CWD' ~ 'GWD',
+          data_f$SaleType == 'VWD' ~ 'GWD',
           TRUE ~'Other'
           ))
 data_fg$SaleType<-(fct_reorder(data_fg$SaleType, data_fg$SalePrice))
+
+#DROP THE FOLLOWING DATA COLUMNS FOR POOR EXPOSURE/VARIANCE
+#Utilities
+
+plot_correlation(data_fg)
 ```
 
 remaining missing rows for the training data set can't be explained. Let's drop these rows from the training set to run our first few models. The new plots show we have a complete data set
