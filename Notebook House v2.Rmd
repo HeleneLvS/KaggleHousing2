@@ -2,6 +2,7 @@
 title: "R Notebook for the Housepricing Comp"
 output: html_notebook
 ---
+
 ```{r setup, include=FALSE}
 options(scipen=999) ###No scientific notifications
 knitr::opts_chunk$set(echo = FALSE)
@@ -123,30 +124,38 @@ plot_missing(data_f)
 USE BELOW SECTION FOR GRAPHS AND EXPLORATION
 
 ```{r Rondtossery}
-xx=data_f$OverallQual
+xx=data_f$Exterior1st
 yy=data_f$SalePrice
+x2 = data_f$Exterior2nd
+
 
 summary(xx)
 ####DELETE HERE
-ggplot(data=data_f, aes(x=xx, y=yy))+
+a<-ggplot(data=data_f, aes(x=xx, y=yy))+
   geom_boxplot()
+ggplot(data = data_fg, aes(x=Exterior1st, y = SalePrice))+geom_boxplot()
 
-ggplot(data=data_f, aes(x=xx))+
+
+b<-ggplot(data=data_fg, aes(x=Exterior1st))+
   geom_bar()+
   geom_text(aes(label = ..count..), stat = "count")
 
-ggplot(data = data_f, aes(x=xx, y= yy))+
-  geom_point(aes(x=xx, y= yy), col= "blue")+
-  geom_point(aes(x=OverallCond, y= yy), col="red")
-  geom_smooth()
+
+plot_grid(a,b,ncol = 1,nrow=2)
+#ggplot(data = data_f, aes(x=xx, y= yy))+
+ # geom_point(aes(x=xx, y= yy), col= "blue")+
+#  geom_point(aes(x=x2, y= yy), col="red", shape =0)+
+#  geom_smooth()
   
-  plot_c
+ggplot(data=data_f, aes(x=Exterior1st, fill = Exterior2nd, y = 1 ) )+
+  geom_bar(position="fill", stat="identity") 
+  
 
 #ggplot(data=data_fg, aes(x=xx, y=LotFrontageF))+
 #  geom_boxplot()
 
 ```
- 
+
 ```{r}
 a<-ggplot(data_f, aes(x=Condition2, y=SalePrice))+
   geom_boxplot()
@@ -157,8 +166,8 @@ b<-ggplot(data_f, aes(x=Condition2))+
 
 plot_grid(a, b, ncol = 2, nrow = 1)
 
-#ggplot(data=data_f, aes(x=Condition2, fill = HouseStyle, y = 1 ) )+
-#  geom_bar(position="fill", stat="identity") 
+ggplot(data=data_f, aes(x=Condition2, fill = HouseStyle, y = 1 ) )+
+  geom_bar(position="fill", stat="identity") 
 #levels(as.factor(data_fg$HouseStyle))
 subset(data_f, Condition1 != "Norm")
 
@@ -238,9 +247,22 @@ data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
                           data_f$HouseStyle == "2.5Unf" ~ "2.5",  
                           TRUE ~ 'Other'  ))
 
+data_fg$YearBuilt<-data_f$YearBuilt
+data_fg$AgeOfHse<-year(now()) - data_f$YearBuilt
 
+data_fg$YearRemodAdd<-case_when(data_f$YearRemodAdd<=data_f$YearBuilt ~ data_f$YearBuilt,
+                                TRUE ~ data_f$YearRemodAdd)
+data_fg$YrsSRemod<-year(now()) - data_fg$YearRemodAdd
+data_fg$RemodYN<- case_when(data_fg$YearRemodAdd==data_fg$YearBuilt ~ "Y",
+                            TRUE ~ "N")
+data_fg$RoofStyle<- as.factor(data_f$RoofStyle)
+data_fg$RoofMatl<-as.factor(case_when(data_f$RoofMatl == "CompShg" ~ "CompShg",
+                                      TRUE ~ "Other"))
+data_fg$Exterior1st<-case_when(data_f$Exterior1st %in% c("AsphShn","BrkComm","CBlock", "ImStucc", "Other", "PreCast", "Stone") ~ "Other",
+                               is.na(data_f$Exterior1st) ~ "Other",
+                               TRUE ~ data_f$Exterior1st)
 
-
+unique(data_f$Exterior1st)
 str(data_fg)
 plot_missing(data_fg)
 plot_correlation(data_fg)
