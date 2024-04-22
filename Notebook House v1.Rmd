@@ -71,6 +71,10 @@ Start by filling in the missing data and running some correlation plots to under
 
 -   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so an alternative is to build a model on LotFrontage as a factor of LotConfig and LotArea. On closer inspection imputing missings with 0's ruins a pretty nice linear correlation between SalePrice and LotFrontage so lets start with the model. There is a separate Impute notebook for details on this. Garage built will be imputed with 3000 to represent the future.
 
+-  There are some multicolinearity in HouseStyle, BldgType and MSSubClass so some information was detracted from this
+
+- Data anomalies exist in the test set where the year the house was built happened after the last additions to the house. The additions were set to the construction year
+
 ```{r CleanupandFilled}
     #Fill in the NA's where they represent 'None Present' with 'Non' 
 
@@ -123,7 +127,7 @@ plot_missing(data_f)
 USE BELOW SECTION FOR GRAPHS AND EXPLORATION
 
 ```{r Rondtossery}
-xx=data_f$OverallQual
+xx=data_f$YearBuilt
 yy=data_f$SalePrice
 
 summary(xx)
@@ -136,11 +140,13 @@ ggplot(data=data_f, aes(x=xx))+
   geom_text(aes(label = ..count..), stat = "count")
 
 ggplot(data = data_f, aes(x=xx, y= yy))+
-  geom_point(aes(x=xx, y= yy), col= "blue")+
-  geom_point(aes(x=OverallCond, y= yy), col="red")
+ # geom_point(aes(x=xx, y= yy), col = "Blue")+
+  geom_point(aes(x=YearRemodAdd, y= yy), col="red")+
   geom_smooth()
-  
-  plot_c
+  summary(data_f$YearRemodAdd)
+  anoms<-subset(data_f, YearRemodAdd<YearBuilt)
+  anoms2<- subset(data_f, YearBuilt>GarageYrBlt)
+ # plot_missing(cbind(as.factor(data_f$OverallQual), as.factor(data_f$OverallCond)))
 
 #ggplot(data=data_fg, aes(x=xx, y=LotFrontageF))+
 #  geom_boxplot()
@@ -237,6 +243,8 @@ data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
                           data_f$HouseStyle == "2.5Fin" ~ "2.5",
                           data_f$HouseStyle == "2.5Unf" ~ "2.5",  
                           TRUE ~ 'Other'  ))
+data_fg$OverallQual<-as.factor(data_f$OverallQual)
+data_fg$OverallCond<-as.factor(data_f$OverallCond)
 
 
 
