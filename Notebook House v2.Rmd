@@ -24,6 +24,12 @@ library(cowplot) # plot different ggplots next to each other
 library(DataExplorer) # Best EDA package by far
 library(corrplot)
 library(pscl) # For Pseudo R squareds on GLMS
+library(caTools) #sample
+library(pscl)
+library(GGally)
+
+#Not used lets remove later
+#library(stats)
 
 #Where will we work
 #getwd()
@@ -41,6 +47,8 @@ The Data explorer package is great for a first stab at unknown data. First thing
     -   Gool ol' OLS with a transformation?
 -   Loads of missing data to remedy
     -   Which means we should add the test and train sets together - to save effort when scoring & validating
+
+### Raw Combined Data File
 
 ```{r EDA}
 
@@ -60,7 +68,6 @@ plot_intro(data)
 plot_missing(data)
 ```
 
-
 Start by filling in the missing data and running some correlation plots to understand the multicollinearity;
 
 -   By completing the NA values we drop from 5.8% missing observations to 0.33%
@@ -71,7 +78,7 @@ Start by filling in the missing data and running some correlation plots to under
 
     -   Garage built
 
--   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so an alternative is to build a model on LotFrontage as a factor of LotConfig and LotArea. On closer inspection imputing missings with 0's ruins a pretty nice linear correlation between SalePrice and LotFrontage so lets start with the model. There is a separate Impute notebook for details on this. Garage built will be imputed with 3000 to represent the future.
+-   The latter's missing value shows there is no Garage on the premises while the LotFrontage might just show that the property is not on a municipal street. However this may be an incorrect assumption so an alternative is to build a model on LotFrontage as a factor of LotConfig and LotArea. On closer inspection imputing missings with 0's ruins a pretty nice linear correlation between SalePrice and LotFrontage so lets start with the model. There is a separate Impute notebook for details on this. Garage built will be imputed with current year + 1 to represent the future.
 
 ```{r CleanupandFilled}
     #Fill in the NA's where they represent 'None Present' with 'None' 
@@ -108,11 +115,8 @@ data_f<-data_f %>%
                       GarageType = "None",GarageFinish = "None",
                       GarageQual="None", GarageCond="None", 
                       PoolQC="None", Fence = "None", GarageQual="None", 
-                      GarageCond = "None", PoolQC = "None", MiscFeature = "None",
+                      GarageCond = "None",  MiscFeature = "None",
                       MasVnrType = "None"))
-
-#names(data_f[,31:39])
-
 data_f<-data_f %>% 
       replace_na(list(GarageCars = 0,
                       GarageArea = 0,
@@ -154,74 +158,14 @@ newdata$Cat<-case_when(
 data_f$LotFrontage<-newdata$LotFrontageF
 data_f$LotFCat<-newdata$Cat
 remove(newdata)
-#create_report(data_f)
-plot_intro(data_f)
-plot_missing(data_f)
-```
 
-USE BELOW SECTION FOR GRAPHS AND EXPLORATION
-
-```{r Rondtossery}
-#xx=fct_reorder(as.factor(data_f$FireplaceQu),data_f$SalePrice)
-xx=data_f$ScreenPorch
-yy=data_f$SalePrice
-#x2 = data_f$HeatingQC
-
-summary(xx)
-####DELETE HERE
-a<-ggplot(data=data_f, aes(x=xx, y=yy))+
-  geom_boxplot()+
-  ggtitle(xx)
-
-b<-ggplot(data=data_f, aes(x=xx))+
-  geom_bar()+
-  geom_text(aes(label = ..count..), stat = "count")
-
-plot_grid(a,b,ncol = 1,nrow=2)
-
-ggplot(data = data_f, aes(x=xx, y= yy))+
-  geom_point(aes(x=xx, y= yy), col= "blue")+
-#  geom_point(aes(x=x2, y= yy), col="red", shape =0)+
-  geom_smooth()
-
-
-  subset(data_f, is.na(X3SsnPorch)== TRUE )
-#ggplot(data=data_f, aes(x=Exterior1st, fill = Exterior2nd, y = 1 ) )+
-#  geom_bar(position="fill", stat="identity") 
-  
-#ggplot(data=data_f, aes(x=x2, fill = xx, y = 1 ) )+
-#  geom_bar(position="fill", stat="identity") 
-
-#ggplot(data=data_fg, aes(x=xx, y=LotFrontageF))+
-#  geom_boxplot()
-
-#library(correlation)
-
-#correlation::correlation(data_f, include_factors = TRUE, method = "auto")
-```
-
-```{r}
-gar<-data_f[,c(66:81)]
-head(arrange(gar,desc(GarageYrBlt)))
-
-x<-subset(gar,is.na(GarageCond) == TRUE)
-
-table(gar$GarageCond)
-
-summary(gar)
-
-plot_missing(gar)
 ```
 
 ```{r REGROUPING}
 ##Regroup poorly represented factor levels
 #Data_fg will be the set that is used for modelling
 
-#HELENE FIX AND CLEAN BELOW 
-
-#plot_missing(data_f[,1:12])
 rm(data_fg)
-#data_fg<-data_f
 data_fg<-data_f[,81:82]
 
 #Resulting factor changes
@@ -251,13 +195,14 @@ data_fg$LandContour<- as.factor(case_when(data_f$LandContour == "HLS" ~ "Other",
 data_fg$LotConfig <- as.factor(data_f$LotConfig)
 data_fg$LandSlope<-as.factor(case_when(data_f$LandSlope == "Gtl" ~ "Gtl",
                             TRUE ~ "Sloped"))
-data_fg$Neighborhood <- as.factor(data_f$Neighborhood)
-data_fg$Condition1 <- case_when(
-                                 substring(data_f$Condition1,1,3) == "RRN" ~ "RRN",
-                                 substring(data_f$Condition1,1,3) == "RRA" ~ "RRA",
-                                 TRUE ~ substring(data_f$Condition1,1,3)
-                                        )                                         
-                                
+data_fg$Neighborhood <- as.factor(case_when(
+  data_f$Neighborhood %in% c("IDOTRR", "BrDale") ~ "IDOTRR_BrDale",
+  data_f$Neighborhood %in% c("Blueste", "Sawyer") ~ "Blueste_Sawyer",
+  TRUE~data_f$Neighborhood) )
+data_fg$Neighborhood <- fct_reorder(data_fg$Neighborhood,data_fg$SalePrice)
+
+data_fg$Condition1 <-substring(data_f$Condition1,1,3)
+
 data_fg$Condition2 <- case_when(
                                  data_f$Condition2 == "Norm" ~ "2Nor",
                                  substring(data_f$Condition2,1,3) == "Pos" ~ "3Pos",
@@ -273,7 +218,7 @@ data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
                           data_f$HouseStyle == "2.5Fin" ~ "2.5",
                           data_f$HouseStyle == "2.5Unf" ~ "2.5",  
                           TRUE ~ 'Other'  ))
-
+data_fg<-cbind(data_fg, data_f[,18:19])
 data_fg$YearBuilt<-data_f$YearBuilt
 data_fg$AgeOfHse<-year(now()) - data_f$YearBuilt
 
@@ -285,17 +230,29 @@ data_fg$RemodYN<- as.factor(case_when(data_fg$YearRemodAdd==data_fg$YearBuilt ~ 
 data_fg$RoofStyle<- as.factor(data_f$RoofStyle)
 data_fg$RoofMatl<-as.factor(case_when(data_f$RoofMatl == "CompShg" ~ "CompShg",
                                       TRUE ~ "Other"))
-data_fg$Exterior1st<-as.factor(case_when(data_f$Exterior1st %in% c("AsphShn","BrkComm","CBlock", "ImStucc", "Other", "PreCast", "Stone") ~ "Other",
-                               is.na(data_f$Exterior1st) ~ "Other",
-                               TRUE ~ data_f$Exterior1st)
-)
-data_fg$Exterior2nd<-as.factor(case_when(data_f$Exterior2nd %in% c("AsphShn","BrkComm","CBlock", "ImStucc", "Other", "PreCast", "Stone", "WdShing") ~ "Other",
-                               is.na(data_f$Exterior2nd) ~ "Other",
-                               TRUE ~ data_f$Exterior2nd)
-)
-data_fg$Ext_Concat<-as.factor(paste(str_trim(data_fg$Exterior1st),
-                          str_trim(data_fg$Exterior2nd), sep="_"))
-data_fg$CntExtFin<- case_when(data_f$Exterior1st==data_fg$Exterior2nd ~ 1 ,
+#unique(data_fg$Exterior1st)
+data_fg$Exterior1st<-as.factor(case_when(
+data_f$Exterior1st %in% c("AsbShng", "AsphShn", "WdShing") ~"Shingles", 
+data_f$Exterior1st %in% c("VinylSd", "MetalSd", "Wd Sdng") ~ "Siding",
+data_f$Exterior1st %in% c("CemntBd", "Plywood", "HdBoard", "BrkFace" ) ~ "Board",
+data_f$Exterior1st %in% c("BrkComm","CBlock", "ImStucc", "Stucco", 
+                         "Other", "PreCast", "Stone") ~ "Other",
+                    is.na(data_f$Exterior1st) ~ "Other",
+                    TRUE ~ data_f$Exterior1st))
+
+data_fg$Exterior2nd<-as.factor(case_when(
+  data_f$Exterior2nd %in% c("AsbShng", "AsphShn", "WdShing", "Wd Shng") ~"Shingles",   data_f$Exterior2nd %in% c("VinylSd", "MetalSd", "Wd Sdng") ~ "Siding",
+  data_f$Exterior2nd %in% c("CemntBd", "CmentBd", "Plywood", "HdBoard", "BrkFace" ) ~ "Board",
+  data_f$Exterior2nd %in% c("BrkComm", "Brk Cmn", "CBlock", "ImStucc", "Stucco", 
+                            "Other", "PreCast", "Stone") ~ "Other",
+               is.na(data_f$Exterior2nd) ~ "Other",
+               TRUE ~ data_f$Exterior2nd))
+data_fg$Ext_Concat<-as.factor(case_when(data_fg$Exterior1st == data_fg$Exterior2nd ~ 
+                                          paste("Dbl_",data_fg$Exterior1st),
+          TRUE ~ paste(data_fg$Exterior1st,'_Mixed')
+          ))
+
+data_fg$CntExtFin<- case_when(data_f$Exterior1st==data_f$Exterior2nd ~ 1 ,
                               TRUE ~ 2)
 
 data_fg$MasVnrType<- as.factor(data_f$MasVnrType)
@@ -338,10 +295,10 @@ data_fg$HeatingQC<-fct_reorder(data_fg$HeatingQC, data_fg$SalePrice)
 data_fg$Electrical <- case_when(data_f$Electrical %in% 
                                   c("SBrkr", "FuseA") ~ data_f$Electrical,
                                 TRUE~"Other")
-data_fg<-cbind(data_fg, data_f[,c(44:47,50:53)])
+data_fg<-cbind(data_fg, data_f[,c(44:47,50:53,55)])
 data_fg$KitchenQual<-fct_reorder(as.factor(case_when(data_f$KitchenQual %in% c("Ex", "Gd", "TA") ~data_f$KitchenQual,
                                TRUE ~ "FaOrLess")),data_fg$SalePrice)
-data_fg$Functional<-case_when(data_f$Functional =="TA" ~ "TA",
+data_fg$Functional<-case_when(data_f$Functional =="Typ" ~ "Typ",
                                TRUE ~ "Dedctns")
 
 data_fg<-cbind(data_fg, data_f[,(57:58)])
@@ -351,10 +308,11 @@ data_fg$GarageType<-case_when(is.na(data_f$GarageYrBlt)==TRUE ~ "None",
 data_fg$GarageYrBlt<-case_when(data_f$GarageYrBlt > data_f$YrSold ~ data_f$YrSold,
                            is.na(data_f$GarageYrBlt) == TRUE ~ (year(now())+1),
                            TRUE ~data_f$GarageYrBlt)
-data_fg<-cbind(data_fg, data_f[,61:71])
-names(data_f)
+data_fg<-cbind(data_fg, data_f[,61:72])
+data_fg$PoolQC<-case_when(data_f$PoolQC == "None" ~ "None",
+                          TRUE ~ "HasPool")
 
-####
+data_fg<-cbind(data_fg, data_f[,74:78])
 data_fg$SaleType<-as.factor(case_when(data_f$SaleType == 'COD' ~ 'COD',
           data_f$SaleType == 'Con' ~ 'GCon', #Contract grouped
           data_f$SaleType == 'ConLw' ~ 'GCon',
@@ -367,134 +325,239 @@ data_fg$SaleType<-as.factor(case_when(data_f$SaleType == 'COD' ~ 'COD',
           TRUE ~'Other'
           ))
 data_fg$SaleType<-(fct_reorder(data_fg$SaleType, data_fg$SalePrice))
+data_fg$SaleCondition<-case_when(data_f$SaleCondition %in% c("Normal", "Partial") ~ data_f$SaleCondition , TRUE ~ "Other" )
 
 ```
 
+# Post Cleaned, Grouped and Filled data:
+
+Factors with no variance such as Utilities have been dropped
+
+Other insights include the basement variables - can it be used for rental income?
 ```{r FixFactors}
-#Basement variables give two big insights; whether there is one and
-#if it can be used as a rental unit
-####
 chr <- sapply(data_fg, is.character)
 colS<-names(data_fg[,chr])
-str(data_fg)
 data_fg[,colS]<-lapply(data_fg[,colS],factor)
-str(data_fg)
 
 remove(colS)               
 
+#ggplot(data_f_t, aes(x=Neighborhood, y = SalePrice))+ geom_boxplot() +
+#theme(axis.text.x = element_text(angle=90))
+
+#ggplot(data_fg, aes(x=Neighborhood))+geom_bar()+
+#theme(axis.text.x = element_text(angle=90))
+
+
 #create_report(data_fg)
 plot_missing(data_fg)
-
-
-
-####
-      replace_na(list( BsmtQual = "Non", BsmtExposure = "Non",
-                      BsmtCond= "Non", BsmtFinType1="Non", BsmtFinType2="Non",
-                      FireplaceQu = "Non", GarageType = "Non",GarageFinish = "Non",
-                      GarageQual="Non", GarageCond="Non", 
-                      PoolQC="Non", Fence = "None", GarageQual="Non", 
-                      GarageCond = "Non", PoolQC = "Non", MiscFeature = "Non")
-######
-
-
-
-
-
-
-#DROP THE FOLLOWING DATA COLUMNS FOR POOR EXPOSURE/VARIANCE
-#Utilities
-
-plot_correlation(data_fg)
 ```
 
-remaining missing rows for the training data set can't be explained. Let's drop these rows from the training set to run our first few models. The new plots show we have a complete data set
+The new plots show we have a complete data set. (Only the dependent variable for the test set is missing)
 
-```{r FillingInMissing}
-subset(mcd, is.na(MSZoning) == TRUE )
+The data is split back into the training and test set, to start modelling. The training set is split into a validation set too, to test over-fitting since we are parameterising
 
-#training set
-data_f_t<-subset(data_f, Type=="train_set")            
-data_f_t<-subset(data_f_t, is.na(MasVnrType) == FALSE )
-data_f_t<-subset(data_f_t, is.na(Electrical) == FALSE )
-check if these are in the training or the test set
-plot_intro(data_f_t)
-plot_missing(data_f_t)  
-#create_report(data_f_t)
+The correlation heatmap from the ExploratoryData package's report is too dense to read properly. For a parameterised model multicollinearity is not good at all.We will split the dataset up into readable chunks and assess. 
 
+```{r Resplit}
+data_fg$LogY<-log(data_fg$SalePrice)
+#test, train & val set
+data_f_tst<-subset(data_fg, Type!="train_set")
+data_f_tst<-data_f_tst[,-c(2)]
+data_f_t<-subset(data_fg, Type=="train_set")  
+data_f_t<-data_f_t[,-c(2)]
 
+plot_correlation(data_f_t)
+
+#Just for ease of reading
+rm(test)
+rm(train)
+rm(data_f)
+rm(m.lf)
+```
+###Correlation
+
+To reduce the data set to a more manageable set for the parameterised models, lets remove the variables that have no correlation with log of SalePrice. This is done by first looking at the numerical variables and removing any where the p-value for the correlation between the ln of SalesPrice and the numeric variable is not significant (p >= 0.05) by Spearman correlation
+
+The remaining variables are mostly assessed for near-perfect multicolinearity. 
+
+```{r DropNum}
+num<- sapply(data_f_t, is.numeric)
+numS<-names(data_f_t[,num])
+data_t_n<-data_f_t[,numS] # only numerical training data columns
+
+#Find overall correlations for factor reduction between numericals
+
+ovcor<- as.data.frame(round(cor(data.frame(lapply(data_t_n, as.integer)),
+                                use = "pairwise.complete.obs",
+                                method = "spearman"),2))
+pcor<-as.data.frame(round(ggcorrplot::cor_pmat(ovcor),3))
+cordep<-as.tibble(ovcor[,ncol(ovcor)]) # Last column has the log of Y
+names(cordep) <- "cor_val"
+pcordep<-as.tibble(pcor[,ncol(ovcor)])
+names(pcordep) <- "p_val"
+cordep<-cbind(cordep, pcordep)
+cordep<- cordep %>% mutate(cordep, Index = row_number(), Nom = colnames(data_t_n))
+  
+RemList<-subset(cordep, p_val >= 0.05 )[,4]
+
+#remove these values from the training sets
+data_f_t<-select (data_f_t ,-(RemList))
+
+k=ncol(data_f_t)
+# Convert data to numeric
+d<-data_f_t[,c(2:k)]
+corr<- data.frame(lapply(d, as.integer))
+#see correlelogram with numerical factors
+ggcorr(corr,
+    method = c("pairwise", "spearman"),
+    nbreaks = 5,
+    hjust = 1,
+    size = 2,
+    label = TRUE,
+    label_size = 2,
+    color = "grey50"
+    )
+
+rem2<-c("YearBuilt", "YearRemodAdd", #"Condition1", 
+        "Condition2", "Exterior1st", 
+        "Exterior2nd")
+data_f_t<-select (data_f_t ,-(rem2))
+
+set.seed(22) 
+sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
+
+T_Train = subset(data_f_t, sample == TRUE)
+T_Val  = subset(data_f_t, sample == FALSE)
+
+rm(ovcor)
+rm(pcor)
+rm(pcordep)
+rm(corr)
+rm(d)
+rm(data_t_n)
+rm(rem2)
+rm(num)
+rm(numS)
+rm(RemSplit)
+rm(RemList)
 ```
 
-The correlation heatmap from the ExploratoryData package's report is too dense to read properly. For a parameterised model multicollinearity is not good at all.
+The result is that we remove the following variables;
 
-```{r MULTICOLLINEARITY}
-factorNames <- c('MSSubClass', 'MSZoning')
-data_f <- data_f %>%
-  mutate(across(factorNames, as.factor))
+- YearBuilt
+- YearRemodAdd
+- Exterior1st
+- Exterior2nd
+- Condition 1
+- Condition 2
 
-str(data_f)
 
-data_f<-
-mcd<-data_f[,c(2:3,81)]
-plot_correlation(mcd)
-plot_correlation(mcd$MSZoning)
 
-b1<-ggplot(data=mcd, aes(x=MSSubClass, y=SalePrice))+
-  geom_boxplot()
+### To remove here - SOM 
 
-b2<-ggplot(data=mcd, aes(x=MSZoning, y=SalePrice))+
-  geom_boxplot()
+The natural log transform does seem to make the dependent variable more symmetrical. Lets explore the three GLMs (Gamma:log, Gamma:inv, gamma:id) with a forward stepwise variable selection to decide which GLM is best
 
-g1<-ggplot(data=mcd, aes(x=MSSubClass) )+
-  geom_bar() 
+In terms of the model selection we need a good balance between Mcfadden's pseudo R-square, Nagelkerke's R-square and plain R-square. As expected the McF's R2 is severely penalised due to too many parameters.
 
-g2<-ggplot(data=mcd, aes(x=MSZoning) )+
-  geom_bar() 
-
-plot_grid(b1, g1, ncol = 2, nrow = 1)
-plot_grid(b2, g2, ncol = 2, nrow = 1)
-
-subset(mcd, is.na(MSZoning) == TRUE )
-```
 
 ```{r DependentDistributionExploration}
 
 ggplot(data_f_t, aes(x=SalePrice))+
-  geom_density(aes(x=SalePrice, y=..density..))
-
-data_f_t$logPrice<-log(data_f_t$SalePrice)
+  geom_density(aes(x=SalePrice, y=..density..))+
+  ggtitle ("SalePrice Distribution")
 
 ggplot(data_f_t)+
-  geom_density(aes(x=logPrice, y=..density..))
+  geom_density(aes(x=LogY, y=..density..))+
+  ggtitle("Distribution of natural logarithm of SalePrice")
+
+```
+### EOM
+
+
+```{r linseqmod}
+#library(ggcorrplot) didn't use this in the end, corr sign is too strict
+#install.packages("AutoStepwiseGLM") only works for gaussian identity. No good
+#install.packages("leaps")
+library(leaps)
+#HERE WE DO THE MANUAL LOGY USING LM
+
+lm.K<-lm(LogY~1,data = T_Train[,2:68] )
+
+lm.Full<-lm(LogY~.,data = T_Train[,2:68])
+
+lm.models <- regsubsets(LogY~., 
+                     data = T_Train[,2:68],
+                     nvmax = 5,
+                     method = "forward")
+
+
+summary(lm.models)
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model <- train(LogY ~., data = T_Train[,2:68],
+                    method = "leapSeq", 
+                    tuneGrid = data.frame(nvmax = 1:260),
+                    trControl = train.control
+                    )
+step.model$bestTune
+step.model$results
+step.model$finalModel
+coef(step.model$finalModel, 67)
+
+```
+
+```{r}
+glm.K<-glm(SalePrice~1, family = Gamma(link="log"), data = T_Train)
+summary(glm.K)
+glm.All<-glm(SalePrice~., family = Gamma(link="log"), data = T_Train)
+summary(glm.All)
+glm.All$aic
+
+#ActualPredicted set
+ap<-as.data.frame(cbind("Actual" = T_Train$SalePrice, "Predicted_K" = glm.K$fitted.values))
+
+
+ggplot(ap, aes(x = Actual, y=Predicted_K)) + geom_point()
+
+
+step_gamma_glm<-step(glm.K,
+                     direction = "forward",
+                     scope = formula(glm.All),
+                     trace=0
+                     )
+step_gamma_glm$aic
+step_gamma_glm$anova
+summary(step_gamma_glm)
+
+##Below only works for numerical values???
 
 
 ```
 
-The natural log transform does seem to make the dependent variable more symmetrical. Lets explore the three GLMs (Gamma:log, Gamma:inv, gamma:id) with a forward stepwise variable selection to decide which GLM is best
+```{r FirstStab}
+# Plot the graph
 
-In terms of the model selevction we need a good balance between Mcfadden's pseudo R-square, Nagelkerke's R-square and plain R-square. As expected the McF's R2 is severely penalised due to too many parameters.
+```
 
 ```{r}
-library(stats)
-library(caTools)
-
-str(data_f_t)
-#We need to remove the variables we do not want to use in the model;
-data_f_t<-data_f_t[,2:81]
-set.seed(101) 
-sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
-T_Train = subset(data_f_t, sample == TRUE)
-T_Val  = subset(data_f_t, sample == FALSE)
 
 
+```
+
+```{r }
 glm.M1<-glm(SalePrice~.,
             family=Gamma(link = "log"),
-            data    = T_Train)
+            data    = T_Train[,1:67])
 
 with(summary(glm.M1), 1 - deviance/null.deviance)
 format( pR2(glm.M1), scientific = FALSE)
-#summary(glm.M1)
+summary(glm.M1)
 
-step_gamma_glm<-step(glm.M1)
+step_gamma_glm<-step(glm.M1, direction="backwards")
+
 step_gamma_glm$aic
 step_gamma_glm$anova
 step_gamma_glm$finalModel
