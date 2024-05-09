@@ -1,9 +1,16 @@
 ---
 title: "R Notebook for the Housepricing Comp"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
+##clean out the space
+rm(list=ls())
+options(scipen=999)
+
+#Chunk options
 options(scipen=999) ###No scientific notifications
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
@@ -11,9 +18,6 @@ knitr::opts_chunk$set(message =  FALSE)
 ```
 
 ```{r admin, include = FALSE}
-##clean out the space
-rm(list=ls())
-options(scipen=999)
 
 ##What do we need
 library(tidyr)
@@ -26,8 +30,8 @@ library(corrplot)
 library(pscl) # For Pseudo R squareds on GLMS
 library(caTools) #sample
 library(pscl)
-library(GGally)
-
+library(GGally) #corrs
+library(MASS) # Stepwise
 #Not used lets remove later
 #library(stats)
 
@@ -133,6 +137,7 @@ data_f<-data_f %>%
 ## Predict the LotFrontage based on total sqft and Configuration of the lot with m.lf
 data_ltz<-subset(data_f, is.na(LotFrontage)==FALSE)
 m.lf <- glm(LotFrontage~LotArea+LotConfig, Gamma(link="log"), data = data_ltz)    
+#summary(m.lf)
 remove(data_ltz)
 newdata<-data_f
 newdata$LotFrontageHat<- predict(m.lf,newdata,type="response")  
@@ -141,7 +146,7 @@ q3<-quantile(newdata$LotFrontage, probs=c(0.75), na.rm=TRUE)
 
 #Cap it
 newdata$LotFrontageHat<-case_when(
-newdata$LotFrontageHat >= (q3+3*iqr) ~ (q3+3*iqr),                            
+newdata$LotFrontageHat >= (q3+2.5*iqr) ~ (q3+2.5*iqr),                            
       TRUE ~newdata$LotFrontageHat
       )
 remove(iqr)
@@ -158,6 +163,10 @@ newdata$Cat<-case_when(
 data_f$LotFrontage<-newdata$LotFrontageF
 data_f$LotFCat<-newdata$Cat
 remove(newdata)
+
+
+data_f<-subset(data_f,log(data_f$SalePrice)<=13.017 | is.na(data_f$SalePrice)==TRUE)
+
 
 ```
 
@@ -201,7 +210,10 @@ data_fg$Neighborhood <- as.factor(case_when(
   TRUE~data_f$Neighborhood) )
 data_fg$Neighborhood <- fct_reorder(data_fg$Neighborhood,data_fg$SalePrice)
 
-data_fg$Condition1 <-substring(data_f$Condition1,1,3)
+data_fg$Condition1 <-case_when(
+  substring(data_f$Condition1,1,3) %in% c("Art", "Fee") ~ "ByRd",
+  substring(data_f$Condition1,1,3) %in% c("RRA", "RRN") ~ "RR",
+  TRUE ~ substring(data_f$Condition1,1,3))
 
 data_fg$Condition2 <- case_when(
                                  data_f$Condition2 == "Norm" ~ "2Nor",
@@ -209,7 +221,8 @@ data_fg$Condition2 <- case_when(
                                  TRUE ~ "1Neg"
                                         )
 
-data_fg$ConComb<-paste(data_fg$Condition1 , data_fg$Condition2, sep = "_") 
+#data_fg$ConComb<-paste(data_fg$Condition1 , data_fg$Condition2, sep = "_") 
+
 data_fg$BldgType<-as.factor(data_f$BldgType)
 data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
                           data_f$HouseStyle == "1.5Fin" ~ "1.5", 
@@ -247,10 +260,10 @@ data_fg$Exterior2nd<-as.factor(case_when(
                             "Other", "PreCast", "Stone") ~ "Other",
                is.na(data_f$Exterior2nd) ~ "Other",
                TRUE ~ data_f$Exterior2nd))
-data_fg$Ext_Concat<-as.factor(case_when(data_fg$Exterior1st == data_fg$Exterior2nd ~ 
-                                          paste("Dbl_",data_fg$Exterior1st),
-          TRUE ~ paste(data_fg$Exterior1st,'_Mixed')
-          ))
+#data_fg$Ext_Concat<-as.factor(case_when(data_fg$Exterior1st == data_fg$Exterior2nd ~ 
+ #                                         paste("Dbl_",data_fg$Exterior1st),
+  #        TRUE ~ paste(data_fg$Exterior1st,'_Mixed')
+   #       ))
 
 data_fg$CntExtFin<- case_when(data_f$Exterior1st==data_f$Exterior2nd ~ 1 ,
                               TRUE ~ 2)
@@ -296,6 +309,9 @@ data_fg$Electrical <- case_when(data_f$Electrical %in%
                                   c("SBrkr", "FuseA") ~ data_f$Electrical,
                                 TRUE~"Other")
 data_fg<-cbind(data_fg, data_f[,c(44:47,50:53,55)])
+
+data_fg$GardenPerc<-(pmax(data_fg$X1stFlrSF, data_fg$X2ndFlrSF)/data_fg$LotArea)*100
+
 data_fg$KitchenQual<-fct_reorder(as.factor(case_when(data_f$KitchenQual %in% c("Ex", "Gd", "TA") ~data_f$KitchenQual,
                                TRUE ~ "FaOrLess")),data_fg$SalePrice)
 data_fg$Functional<-case_when(data_f$Functional =="Typ" ~ "Typ",
@@ -313,6 +329,11 @@ data_fg$PoolQC<-case_when(data_f$PoolQC == "None" ~ "None",
                           TRUE ~ "HasPool")
 
 data_fg<-cbind(data_fg, data_f[,74:78])
+
+data_fg$GarageQual<-case_when(data_fg$GarageQual %in% c('Ex', 'Gd') ~ 'ExGd',
+                              data_fg$GarageQual %in% c('Po', 'None') ~ 'PoNone',
+                              TRUE ~ data_fg$GarageQual )
+
 data_fg$SaleType<-as.factor(case_when(data_f$SaleType == 'COD' ~ 'COD',
           data_f$SaleType == 'Con' ~ 'GCon', #Contract grouped
           data_f$SaleType == 'ConLw' ~ 'GCon',
@@ -326,6 +347,7 @@ data_fg$SaleType<-as.factor(case_when(data_f$SaleType == 'COD' ~ 'COD',
           ))
 data_fg$SaleType<-(fct_reorder(data_fg$SaleType, data_fg$SalePrice))
 data_fg$SaleCondition<-case_when(data_f$SaleCondition %in% c("Normal", "Partial") ~ data_f$SaleCondition , TRUE ~ "Other" )
+
 
 ```
 
@@ -341,12 +363,13 @@ data_fg[,colS]<-lapply(data_fg[,colS],factor)
 
 remove(colS)               
 
-#ggplot(data_f_t, aes(x=Neighborhood, y = SalePrice))+ geom_boxplot() +
+#ggplot(data_fg, aes(x=GarageType, y = SalePrice))+ 
+#  geom_boxplot() +
+ # geom_jitter()+
 #theme(axis.text.x = element_text(angle=90))
 
-#ggplot(data_fg, aes(x=Neighborhood))+geom_bar()+
+#ggplot(data_f_t, aes(x=GarageType))+geom_bar()+
 #theme(axis.text.x = element_text(angle=90))
-
 
 #create_report(data_fg)
 plot_missing(data_fg)
@@ -393,15 +416,17 @@ ovcor<- as.data.frame(round(cor(data.frame(lapply(data_t_n, as.integer)),
 pcor<-as.data.frame(round(ggcorrplot::cor_pmat(ovcor),3))
 cordep<-as.tibble(ovcor[,ncol(ovcor)]) # Last column has the log of Y
 names(cordep) <- "cor_val"
-pcordep<-as.tibble(pcor[,ncol(ovcor)])
+pcordep<-as.tibble(pcor[,ncol(pcor)])
 names(pcordep) <- "p_val"
 cordep<-cbind(cordep, pcordep)
 cordep<- cordep %>% mutate(cordep, Index = row_number(), Nom = colnames(data_t_n))
   
 RemList<-subset(cordep, p_val >= 0.05 )[,4]
+RemList
+cat('The following factors have low correlation with the dependent variable:', RemList)
 
 #remove these values from the training sets
-data_f_t<-select (data_f_t ,-(RemList))
+data_f_t<-dplyr::select(data_f_t, -(RemList))
 
 k=ncol(data_f_t)
 # Convert data to numeric
@@ -418,13 +443,21 @@ ggcorr(corr,
     color = "grey50"
     )
 
-rem2<-c("YearBuilt", "YearRemodAdd", #"Condition1", 
-        "Condition2", "Exterior1st", 
-        "Exterior2nd")
-data_f_t<-select (data_f_t ,-(rem2))
+        
+rem2<-c("YearBuilt", "YearRemodAdd", 
+        #"Condition1", "Condition2", "Exterior1st", "Exterior2nd", 
+        "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF",
+        "X1stFlrSF", "X2ndFlrSF", "BsmtQual",
+        "BsmtCond",  "BsmtFinType1", "BsmtFinType2")
+
+ii<-intersect(RemList, rem2)
+rem2<-rem2[rem2 != ii]
+
+data_f_t<-dplyr::select (data_f_t ,-(rem2))
 
 set.seed(22) 
 sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
+data_f_t<-dplyr::select(data_f_t, -LogY)
 
 T_Train = subset(data_f_t, sample == TRUE)
 T_Val  = subset(data_f_t, sample == FALSE)
@@ -438,7 +471,6 @@ rm(data_t_n)
 rm(rem2)
 rm(num)
 rm(numS)
-rm(RemSplit)
 rm(RemList)
 ```
 
@@ -446,12 +478,21 @@ The result is that we remove the following variables;
 
 - YearBuilt
 - YearRemodAdd
-- Exterior1st
-- Exterior2nd
-- Condition 1
-- Condition 2
 
+And secondly the following are linear combinations of other variables
+- BsmtFinSF1
+- BsmtFinSF2
+- BsmtUnfSF for Total Basement SF
 
+And GrLivArea is the sum of these
+- X1stFlrSF 
+- X2ndFlrSF
+
+BsmtGenInfo is a composite of
+- BsmtQual
+- BsmtCond
+- BsmtFinType1
+- BsmtFinType2
 
 ### To remove here - SOM 
 
@@ -467,157 +508,272 @@ ggplot(data_f_t, aes(x=SalePrice))+
   ggtitle ("SalePrice Distribution")
 
 ggplot(data_f_t)+
-  geom_density(aes(x=LogY, y=..density..))+
+  geom_density(aes(x=log(SalePrice), y=..density..))+
   ggtitle("Distribution of natural logarithm of SalePrice")
 
 ```
-### EOM
+### GLM Selections
+
+A multi-loop was coded for GLM Stepwise Factor Selection which terminates when the model's AIC stops dropping. 
+
+```{r GLM_Gamma_log}
+
+results<-data.frame("int"=0, "factor_in" = 'var', "AIC" = 0.00, "R2" = 0.00)
+keep<-data.frame("VarCnt"=0, "Exp"='exp', "int"=0, "factor_in" = 'var', "AIC" = 0.00, "R2" = 0.00)
+t=ncol(T_Train)-1
+unk_r2=data.frame("new_r2"=0)
+cond <- 0
+
+#j=2
+for (j in 1:t){
+  if (j < 2){
+    y="SalePrice~"
+    y_exp<-y
+    X_vars<-T_Train
+  } else {
+    y_exp<-paste(y_exp, keep[(j-1),4],'+')
+    }
+  if (j>1 & cond > 0){
+    break
+  }
+  k=ncol(X_vars)
+ # print(k)
+ # print(y_exp)
+  for (i in 1:(k-2)) {
+    #for (i in 1: 11) {
+    #x=names(T_Train)[(i+1)]
+    var = names(X_vars)[i+1]
+    mod<-glm(paste(y_exp,var),
+             family = Gamma(link="log"), 
+             data = T_Train)
+    AIC<-as.numeric(mod$aic)
+    R2<-as.numeric(with(summary(mod), 1 - deviance/null.deviance))
+    ires<-cbind(i,var,AIC,R2)
+    results[i,]<-ires
+  }
+  
+  keep[j,]<-cbind(j, y_exp, results[order(results$R2, decreasing = TRUE), ][1,])
+  use_mod_gamlog<-glm(paste(keep[j,2],keep[j,4]),
+               family = Gamma(link="log"), 
+               data = T_Train)
+  AP<-predict(object = use_mod_gamlog, newdata = T_Val, type = "response")
+  unk_r2[j,1]<-cor(AP,T_Val[,1], method = "spearman")
+  X_vars<-dplyr::select(X_vars,-(keep[j,4]))
+  if (j>1) {
+    cond <- as.numeric(keep[j,5]) - as.numeric(keep[j-1,5])
+    } else { cond<- 0 }
+}
+
+ResultSummary<-cbind(keep,unk_r2)
+ResultSummary<-ResultSummary[1:nrow(ResultSummary)-1,]
+LastExp<-paste(ResultSummary[nrow(ResultSummary),2],ResultSummary[nrow(ResultSummary),4])
+ResultSummary<-dplyr::select(ResultSummary, -"Exp")
+ResultSummary
+
+BestModUnrfn<-glm(LastExp,
+               family = Gamma(link="log"), 
+               data = T_Train)
+
+summary(BestModUnrfn)
+
+#T_Val$yh<-exp(predict(BestModUnrfn, T_Val))
+#ggplot(data=T_Val, aes(x=SalePrice, y = yh))+ geom_jitter()+geom_line(aes(x=SalePrice, y = #SalePrice))
+#hist(data_fg$LotFrontage)
+#LotFrontage above 150feet seems unrealistic. It also causes a major outlier. Should cap the prediction to the 5% percentile of the neighbourhood.... 
+
+rm(cordep)
+rm(ires)
+rm(keep)
+rm(results)
+rm(ii)
+rm(j)
+rm(X_vars)
+rm(use_mod_gamlog)
+```
 
 
-```{r linseqmod}
-#library(ggcorrplot) didn't use this in the end, corr sign is too strict
-#install.packages("AutoStepwiseGLM") only works for gaussian identity. No good
-#install.packages("leaps")
-library(leaps)
-#HERE WE DO THE MANUAL LOGY USING LM
 
-lm.K<-lm(LogY~1,data = T_Train[,2:68] )
+```{r RefineGamLog}
+ggplot(ResultSummary, aes(x=VarCnt) )+
+  geom_line(aes(y=new_r2), color = "red")+
+  geom_line(aes(y=as.numeric(R2)), color = "blue")
 
-lm.Full<-lm(LogY~.,data = T_Train[,2:68])
+ggplot(ResultSummary, aes(x=VarCnt, y=as.numeric(AIC)) )+
+  geom_line()
 
-lm.models <- regsubsets(LogY~., 
-                     data = T_Train[,2:68],
-                     nvmax = 5,
-                     method = "forward")
+set.seed(22) 
+sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
+
+##FIX DATA GROUPS FOR PARAMS
+L<-char(ResultSummary$factor_in)
+GamData<-dplyr::select(data_f_t, L)
+GamData2<-dplyr::select(data_f_tst, L)
+GamData2<-cbind("SalePrice" = NA, GamData2)
+GamData2$Grp<-"Test"
+
+GamData<-cbind("SalePrice"=data_f_t[,1],GamData)
+GamData$Grp<-case_when(sample == TRUE ~ "Train", TRUE~ "Val")
+                         
+GamData<-rbind(GamData,GamData2)                         
+
+GamData$BsmtGenInfo<-case_when(
+  GamData$BsmtGenInfo == "RentBsmt" ~ GamData$BsmtGenInfo,
+  TRUE~"Other")
+GamData$FireplaceQu<-case_when(
+  GamData$FireplaceQu == "None" ~ "None",
+  TRUE~"HasFP")
+GamData$BldgType <-fct_reorder(case_when(
+  GamData$BldgType %in% c("1Fam", "2fmCon","Duplex") ~ "1_2fm_Dup",
+                                    TRUE ~ GamData$BldgType), GamData$SalePrice)
+GamData$Condition1<- case_when(
+  GamData$Condition1 %in% c("ByRd", "RR") ~ "ByRdRR",
+  GamData$Condition1 %in% c("Nor", "Pos") ~ "NorPos",
+  TRUE ~ "error"  )
+GamData$BsmtExposure<-case_when(
+  GamData$BsmtExposure =="Gd" ~ "Gd",
+  TRUE~"Other")
+GamData$BsmtExposure<-fct_reorder(GamData$BsmtExposure, GamData$SalePrice)
+
+GamData$GarageType<-fct_reorder(case_when(
+  GamData$GarageType %in% c("CarPort","None", "2Types") ~ "None_Cprt",
+  GamData$GarageType %in% c("Attchd","Basment", "BuiltIn") ~ "PlanAtt",
+  TRUE~GamData$GarageType), GamData$SalePrice)
 
 
-summary(lm.models)
+GamData$HeatingQC <-fct_reorder(case_when(
+  GamData$HeatingQC %in% c("Ex","Gd") ~ "ExGd",
+                                    TRUE ~ "PoFaTA"),GamData$SalePrice)
+GamData$KitchenQual <-fct_reorder(case_when(GamData$KitchenQual == "Ex" ~ "Ex",
+                                 TRUE ~ "NormnLess"),GamData$SalePrice)
 
-set.seed(123)
-# Set up repeated k-fold cross-validation
-train.control <- trainControl(method = "cv", number = 10)
-# Train the model
-step.model <- train(LogY ~., data = T_Train[,2:68],
-                    method = "leapSeq", 
-                    tuneGrid = data.frame(nvmax = 1:260),
-                    trControl = train.control
-                    )
-step.model$bestTune
-step.model$results
-step.model$finalModel
-coef(step.model$finalModel, 67)
+GamData$GarageQual<-fct_reorder(case_when(
+  GamData$GarageQual %in% c("None", "Po") ~ "NonePoor",
+  GamData$GarageQual %in% c("TA","Fa") ~ "FairTyp",
+                                    TRUE ~ "ExGd"),GamData$SalePrice)
+
+GamData$SaleType <-fct_reorder(case_when(
+  GamData$SaleType == "New" ~ GamData$SaleType,
+ TRUE ~ "Other"),GamData$SalePrice)
+
+GamData$LotConfig <-fct_reorder(case_when(
+  GamData$LotConfig %in% c( "CulDSac") ~ GamData$LotConfig,
+ TRUE ~ "NotCDSac"),GamData$SalePrice)
+
+GamData$Foundation <-fct_reorder(case_when(
+  GamData$Foundation == "PConc" ~ "PConc",
+  TRUE ~ "Other"), GamData$SalePrice)
+
+GamData$Condition2 <-fct_reorder(case_when(
+  GamData$Condition2 == "3Pos" ~ "Pos",
+  TRUE ~ "NegNor"), GamData$SalePrice)
+
+GamT_Train = subset(GamData,Grp == "Train")
+GamT_Val  = subset(GamData, Grp == "Val")
+GamT_Score  = subset(GamData, Grp == "Test")
+
+RefGamGLM<-glm(LastExp,
+               family = Gamma(link="log"), 
+               data = GamT_Train)
+
+#This is the version with outliers
+#SalePrice~ OverallQual + GrLivArea + Neighborhood + BsmtGenInfo + GarageArea + OverallCond + TotalBsmtSF + AgeOfHse + BldgType + MSZoning + Fireplaces + BsmtExposure + KitchenQual + Functional + Condition1 + HeatingQC + GarageQual + SaleType + LotArea + Condition2 + ExterCond + CentralAir + YrsSRemod + LotConfig + Foundation"
+
+# This is the eq without the outliers - should really remove the var that has no signifincat levels...(GarageQual)
+#"SalePrice~ OverallQual + Neighborhood + GrLivArea + BsmtGenInfo + GarageArea + OverallCond + TotalBsmtSF + AgeOfHse + FireplaceQu + MSZoning + BldgType + LotArea + Condition1 + Functional + BsmtExposure + HeatingQC + KitchenQual + GarageType + SaleType + Condition2 + ExterCond + CentralAir + LotConfig + GarageQual + YrsSRemod + Foundation + WoodDeckSF + LowQualFinSF + KitchenAbvGr"
+
+summary(RefGamGLM)
+
+as.numeric(with(summary(RefGamGLM), 1 - deviance/null.deviance))
+APR<-predict(object = RefGamGLM, newdata = GamT_Val, type = "response")
+cor(APR,GamT_Val[,1], method = "spearman")
+
+t<-as.data.frame(cbind("Actual"=GamT_Val[,1],"Predicted"=APR, "Neighborhood"=GamT_Val[,3]))
+t$Neighborhood<-as.character(GamT_Val[,3])
+t$LotArea<-GamT_Val$LotArea
+tt<-rbind(melt(t, id=3, measure = 1),melt(t, id=3, measure = 2))
+
+
+ggplot(data=t, aes(x=Actual, y = Predicted))+ geom_jitter(color = "red")+ geom_line(aes(x=Actual, y=Actual), colour = "green")
+
+ggplot(tt, aes(x=Neighborhood))+geom_boxplot(aes(y=value, fill = variable))+
+    theme(axis.text.x = element_text(angle=90))+
+ ggtitle("Identify Outliers for capping - Idea1")
+
+ggplot(t, aes(x=LotArea))+geom_jitter(aes(y=Actual), color = "purple")+geom_jitter(aes(y=Predicted), color = "pink")+
+    theme(axis.text.x = element_text(angle=90))+
+ ggtitle("Identify Outliers for capping - Idea2")
+
+CapPred<- t %>% 
+  group_by(Neighborhood) %>%  
+  summarise(P99Actual = quantile(Actual, c( 0.99)))
+CapPred$P99Actual<-as.numeric(CapPred$P99Actual)
+
+ggplot(data=CapPred, aes(x=Neighborhood, y = P99Actual))+ geom_jitter()+
+  theme(axis.text.x = element_text(angle=90))+
+ ggtitle("Capping outliers by Neighbourhood at 99th Percentile")
+```
+
+```{r Prediction}
+
+
+GamT_Score$Upload_Gam1<-predict(object = RefGamGLM, newdata = GamT_Score, type = "response")
+
+GamT_Score <- GamT_Score %>% 
+  left_join(CapPred, by = c("Neighborhood")) 
+
+
+
+
+#library(sjPlot)
+#plot_model(RefGamGLM, type = "pred", terms = c("OverallQual", "OverallCond"))
+
+
+##ADD ERROR CHARTS
+
+##CAP THE PREDICTION TO BE NO LARGER THAN 5% ABOVE THE MAX IN TRAINING SET
+
 
 ```
 
-```{r}
-glm.K<-glm(SalePrice~1, family = Gamma(link="log"), data = T_Train)
-summary(glm.K)
-glm.All<-glm(SalePrice~., family = Gamma(link="log"), data = T_Train)
-summary(glm.All)
-glm.All$aic
 
-#ActualPredicted set
-ap<-as.data.frame(cbind("Actual" = T_Train$SalePrice, "Predicted_K" = glm.K$fitted.values))
-
-
-ggplot(ap, aes(x = Actual, y=Predicted_K)) + geom_point()
-
-
-step_gamma_glm<-step(glm.K,
-                     direction = "forward",
-                     scope = formula(glm.All),
-                     trace=0
-                     )
-step_gamma_glm$aic
-step_gamma_glm$anova
-summary(step_gamma_glm)
-
-##Below only works for numerical values???
-
-
-```
-
-```{r FirstStab}
-# Plot the graph
-
-```
-
-```{r}
-
-
-```
-
-```{r }
-glm.M1<-glm(SalePrice~.,
-            family=Gamma(link = "log"),
-            data    = T_Train[,1:67])
-
-with(summary(glm.M1), 1 - deviance/null.deviance)
-format( pR2(glm.M1), scientific = FALSE)
-summary(glm.M1)
-
-step_gamma_glm<-step(glm.M1, direction="backwards")
-
-step_gamma_glm$aic
-step_gamma_glm$anova
-step_gamma_glm$finalModel
-
-x<-step_gamma_glm$model
-yhat<-step_gamma_glm$fitted.values
-y<-T_Train$SalePrice
-fitted<-as.data.frame(cbind(yhat,y))
-
-finalModel<-glm(formula = SalePrice ~ MSZoning + LotArea + Street + LandContour + 
-    Utilities + LotConfig + LandSlope + Neighborhood + Condition1 + 
-    Condition2 + BldgType + OverallQual + OverallCond + YearBuilt + 
-    YearRemodAdd + RoofMatl + Exterior1st + MasVnrArea + ExterCond + 
-    Foundation + BsmtExposure + BsmtFinSF1 + BsmtFinSF2 + BsmtUnfSF + 
-    Heating + HeatingQC + CentralAir + X1stFlrSF + X2ndFlrSF + 
-    LowQualFinSF + BsmtFullBath + FullBath + HalfBath + KitchenAbvGr + 
-    KitchenQual + TotRmsAbvGrd + Functional + Fireplaces + GarageYrBlt + 
-    GarageCars + GarageArea + GarageQual + GarageCond + WoodDeckSF + 
-    EnclosedPorch + X3SsnPorch + ScreenPorch + PoolArea + PoolQC + 
-    Fence + SaleType + SaleCondition, family = Gamma(link = "log"), 
-    data = T_Train)
-summary(finalModel)
-
-
-
-valResult<-predict(finalModel,T_Val)
-
-ggplot(fitted, aes(x=yhat, y=y))+
-  geom_jitter()+
-  geom_line(aes(x=y, y=y))
-
-mse
-```
 
 After that we will do some feature engineering to see if there is an improvement
 
 These are unused codes
 
-```{r}
-library(sqldf)
-sqldf("Select * from data_f where MasVnrType is null")
+```{r LM_LogY}
 
-c<-sqldf("Select MSZoning, MSSubClass, count(*) from missing
-group by MSZoning,MSSubClass
-      ")
-
-FV<-sqldf("Select MSZoning, Street, count(*) total, sum(case when LotFrontage is null then 1 else 0 end) count_missing
-          from data_f
-          group by 1,2")
-
-FV<-sqldf("Select *, sum(count_missing)/sum(total) from FV")
-#create_report(data)
-
-
-VIOLIN PLOT
-vp1 <- ggplot(mcd, aes(x=MSSubClass, y=SalePrice)) +
-  geom_violin()+
-  geom_boxplot(width=0.1)
+full.model <- lm(LogY~., data = T_Train_LY)
+step.LY.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.LY.model)
 ```
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+all.pred.train<-data.frame("Train_Actual" = T_Train[,1],
+  "LY_hat" =exp(predict(step.LY.model, T_Train_LY, type = "response")),
+                           "Y_hat" = use_mod_gamlog$fitted.values,
+  T_Train[,2:ncol(T_Train)])
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+all.pred.train<-all.pred.train[order(all.pred.train$Train_Actual,decreasing = TRUE),]
+head(all.pred.train) 
+
+boxdata <- tidyr::pivot_longer(all.pred.train[,c(1:3,14)], -Neighborhood)  
+ggplot(boxdata, aes(x=Neighborhood, y=value, color = name)) +    geom_boxplot() 
+
+ggplot(all.pred.train, aes(x=LotArea))+
+  geom_jitter(aes(y = Train_Actual), color = "blue")+
+  geom_jitter(aes(y = LY_hat), color = "pink")+
+  geom_jitter(aes(y = Y_hat), color = "orange")
+
+ggplot(all.preds.val, aes(x=LotArea))+
+  geom_jitter(aes(y = Val_actual), color = "blue")+
+  geom_jitter(aes(y = Pred_LMLog), color = "pink")+
+  geom_jitter(aes(y = AP), color = "orange")
+
+ggplot(all.preds.val, aes(x=(LotFrontage/LotArea)))+
+  geom_jitter(aes(y = Val_actual), color = "blue")+
+  geom_jitter(aes(y = Pred_LMLog), color = "pink")+
+  geom_jitter(aes(y = AP), color = "orange")
+
+```
+
