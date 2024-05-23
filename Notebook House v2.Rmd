@@ -32,6 +32,7 @@ library(caTools) #sample
 library(pscl)
 library(GGally) #corrs
 library(MASS) # Stepwise
+library(data.table) # for melt
 #Not used lets remove later
 #library(stats)
 
@@ -233,11 +234,11 @@ data_fg$Stories<-as.factor(case_when(data_f$HouseStyle == "1Story" ~ "1.0",
                           TRUE ~ 'Other'  ))
 data_fg<-cbind(data_fg, data_f[,18:19])
 data_fg$YearBuilt<-data_f$YearBuilt
-data_fg$AgeOfHse<-year(now()) - data_f$YearBuilt
+data_fg$AgeOfHse<-data_f$YrSold - data_f$YearBuilt
 
 data_fg$YearRemodAdd<-case_when(data_f$YearRemodAdd<=data_f$YearBuilt ~ data_f$YearBuilt,
                                 TRUE ~ data_f$YearRemodAdd)
-data_fg$YrsSRemod<-year(now()) - data_fg$YearRemodAdd
+data_fg$YrsSRemod<-data_f$YrSold - data_fg$YearRemodAdd
 data_fg$RemodYN<- as.factor(case_when(data_fg$YearRemodAdd==data_fg$YearBuilt ~ "Y",
                             TRUE ~ "N"))
 data_fg$RoofStyle<- as.factor(data_f$RoofStyle)
@@ -363,15 +364,6 @@ data_fg[,colS]<-lapply(data_fg[,colS],factor)
 
 remove(colS)               
 
-#ggplot(data_fg, aes(x=GarageType, y = SalePrice))+ 
-#  geom_boxplot() +
- # geom_jitter()+
-#theme(axis.text.x = element_text(angle=90))
-
-#ggplot(data_f_t, aes(x=GarageType))+geom_bar()+
-#theme(axis.text.x = element_text(angle=90))
-
-#create_report(data_fg)
 plot_missing(data_fg)
 ```
 
@@ -382,7 +374,9 @@ The data is split back into the training and test set, to start modelling. The t
 The correlation heatmap from the ExploratoryData package's report is too dense to read properly. For a parameterised model multicollinearity is not good at all.We will split the dataset up into readable chunks and assess. 
 
 ```{r Resplit}
+data_fg$Id<-data_f$Id
 data_fg$LogY<-log(data_fg$SalePrice)
+
 #test, train & val set
 data_f_tst<-subset(data_fg, Type!="train_set")
 data_f_tst<-data_f_tst[,-c(2)]
@@ -420,9 +414,9 @@ pcordep<-as.tibble(pcor[,ncol(pcor)])
 names(pcordep) <- "p_val"
 cordep<-cbind(cordep, pcordep)
 cordep<- cordep %>% mutate(cordep, Index = row_number(), Nom = colnames(data_t_n))
-  
+
 RemList<-subset(cordep, p_val >= 0.05 )[,4]
-RemList
+RemList<-RemList[-9]
 cat('The following factors have low correlation with the dependent variable:', RemList)
 
 #remove these values from the training sets
@@ -450,8 +444,9 @@ rem2<-c("YearBuilt", "YearRemodAdd",
         "X1stFlrSF", "X2ndFlrSF", "BsmtQual",
         "BsmtCond",  "BsmtFinType1", "BsmtFinType2")
 
-ii<-intersect(RemList, rem2)
-rem2<-rem2[rem2 != ii]
+##This was necessary when there was an overlap between the two sets. Now it breaks the model
+#ii<-intersect(RemList, rem2)
+#rem2<-rem2[rem2 != ii]
 
 data_f_t<-dplyr::select (data_f_t ,-(rem2))
 
@@ -604,8 +599,8 @@ ggplot(ResultSummary, aes(x=VarCnt, y=as.numeric(AIC)) )+
 set.seed(22) 
 sample = sample.split(data_f_t$SalePrice, SplitRatio = .85)
 
-##FIX DATA GROUPS FOR PARAMS
-L<-char(ResultSummary$factor_in)
+##FIX DATA GROUPS FOR PARAM SIGNIF
+L<-c(char(ResultSummary$factor_in), "Id")
 GamData<-dplyr::select(data_f_t, L)
 GamData2<-dplyr::select(data_f_tst, L)
 GamData2<-cbind("SalePrice" = NA, GamData2)
@@ -613,7 +608,7 @@ GamData2$Grp<-"Test"
 
 GamData<-cbind("SalePrice"=data_f_t[,1],GamData)
 GamData$Grp<-case_when(sample == TRUE ~ "Train", TRUE~ "Val")
-                         
+#Group the test and training sets together to wrangle the data once.                         
 GamData<-rbind(GamData,GamData2)                         
 
 GamData$BsmtGenInfo<-case_when(
@@ -634,10 +629,10 @@ GamData$BsmtExposure<-case_when(
   TRUE~"Other")
 GamData$BsmtExposure<-fct_reorder(GamData$BsmtExposure, GamData$SalePrice)
 
-GamData$GarageType<-fct_reorder(case_when(
-  GamData$GarageType %in% c("CarPort","None", "2Types") ~ "None_Cprt",
-  GamData$GarageType %in% c("Attchd","Basment", "BuiltIn") ~ "PlanAtt",
-  TRUE~GamData$GarageType), GamData$SalePrice)
+# GamData$GarageType<-fct_reorder(case_when(
+#   GamData$GarageType %in% c("CarPort","None", "2Types") ~ "None_Cprt",
+#   GamData$GarageType %in% c("Attchd","Basment", "BuiltIn") ~ "PlanAtt",
+#   TRUE~GamData$GarageType), GamData$SalePrice)
 
 
 GamData$HeatingQC <-fct_reorder(case_when(
@@ -651,9 +646,9 @@ GamData$GarageQual<-fct_reorder(case_when(
   GamData$GarageQual %in% c("TA","Fa") ~ "FairTyp",
                                     TRUE ~ "ExGd"),GamData$SalePrice)
 
-GamData$SaleType <-fct_reorder(case_when(
-  GamData$SaleType == "New" ~ GamData$SaleType,
- TRUE ~ "Other"),GamData$SalePrice)
+# GamData$SaleType <-fct_reorder(case_when(
+#   GamData$SaleType == "New" ~ GamData$SaleType,
+#  TRUE ~ "Other"),GamData$SalePrice)
 
 GamData$LotConfig <-fct_reorder(case_when(
   GamData$LotConfig %in% c( "CulDSac") ~ GamData$LotConfig,
@@ -667,6 +662,12 @@ GamData$Condition2 <-fct_reorder(case_when(
   GamData$Condition2 == "3Pos" ~ "Pos",
   TRUE ~ "NegNor"), GamData$SalePrice)
 
+chr2 <- sapply(GamData, is.character)
+colS<-names(GamData[,chr2])
+GamData[,colS]<-lapply(GamData[,colS],factor)
+remove(colS)  
+remove(chr2)
+
 GamT_Train = subset(GamData,Grp == "Train")
 GamT_Val  = subset(GamData, Grp == "Val")
 GamT_Score  = subset(GamData, Grp == "Test")
@@ -679,7 +680,8 @@ RefGamGLM<-glm(LastExp,
 #SalePrice~ OverallQual + GrLivArea + Neighborhood + BsmtGenInfo + GarageArea + OverallCond + TotalBsmtSF + AgeOfHse + BldgType + MSZoning + Fireplaces + BsmtExposure + KitchenQual + Functional + Condition1 + HeatingQC + GarageQual + SaleType + LotArea + Condition2 + ExterCond + CentralAir + YrsSRemod + LotConfig + Foundation"
 
 # This is the eq without the outliers - should really remove the var that has no signifincat levels...(GarageQual)
-#"SalePrice~ OverallQual + Neighborhood + GrLivArea + BsmtGenInfo + GarageArea + OverallCond + TotalBsmtSF + AgeOfHse + FireplaceQu + MSZoning + BldgType + LotArea + Condition1 + Functional + BsmtExposure + HeatingQC + KitchenQual + GarageType + SaleType + Condition2 + ExterCond + CentralAir + LotConfig + GarageQual + YrsSRemod + Foundation + WoodDeckSF + LowQualFinSF + KitchenAbvGr"
+
+#"SalePrice~ OverallQual + Neighborhood + GrLivArea + BsmtGenInfo + GarageArea + OverallCond + TotalBsmtSF + AgeOfHse + FireplaceQu + MSZoning + BldgType + LotArea + SaleCondition + Condition1 + Functional + BsmtExposure + KitchenQual + CentralAir + Condition2 + GarageQual + YrsSRemod + ExterCond + LotConfig + HeatingQC + Foundation + WoodDeckSF"
 
 summary(RefGamGLM)
 
@@ -711,69 +713,292 @@ CapPred$P99Actual<-as.numeric(CapPred$P99Actual)
 ggplot(data=CapPred, aes(x=Neighborhood, y = P99Actual))+ geom_jitter()+
   theme(axis.text.x = element_text(angle=90))+
  ggtitle("Capping outliers by Neighbourhood at 99th Percentile")
+
+
 ```
 
 ```{r Prediction}
-
-
-GamT_Score$Upload_Gam1<-predict(object = RefGamGLM, newdata = GamT_Score, type = "response")
+GamT_Score$Upload_Gam4<-predict(object = RefGamGLM, newdata = GamT_Score, type = "response")
 
 GamT_Score <- GamT_Score %>% 
   left_join(CapPred, by = c("Neighborhood")) 
 
+GamT_Score$SalePrice<-case_when(GamT_Score$Upload_Gam4>GamT_Score$P99Actual ~ GamT_Score$P99Actual,
+                                TRUE~GamT_Score$Upload_Gam4)
+GamT_Score$SalePriceOR<-case_when(GamT_Score$Upload_Gam4>GamT_Score$P99Actual ~ "Y",
+                                TRUE~"N")
 
+ggplot(GamT_Score, aes(x=SalePriceOR)) + geom_bar()
 
+ggplot(GamT_Score)+geom_jitter( aes(x=Upload_Gam4 , y=P99Actual, color=SalePriceOR))
 
-#library(sjPlot)
-#plot_model(RefGamGLM, type = "pred", terms = c("OverallQual", "OverallCond"))
+#Capped set
+Sub1_NoOutGamGLM<-GamT_Score[,c("Id","SalePrice")]
+write.csv(Sub1_NoOutGamGLM, "Sub3_NoOutGamGLM.csv")
 
-
-##ADD ERROR CHARTS
-
-##CAP THE PREDICTION TO BE NO LARGER THAN 5% ABOVE THE MAX IN TRAINING SET
-
+#Extreme OL Fixed
+Sub2_GamGLM<-GamT_Score[,c("Id","Upload_Gam4")]
+Sub2_GamGLM$Upload_Gam4<-case_when(GamT_Score$Upload_Gam4>500000 ~ 500000, 
+                                   TRUE ~  GamT_Score$Upload_Gam4)
+write.csv(Sub2_GamGLM, "Sub4_GamGLM.csv")
 
 ```
 
+```{r TradSWLM}
+LogY<-log(T_Train$SalePrice)
+T_TrainLY<-cbind(LogY, T_Train[,2:ncol(T_Train)])
 
+full.model <- lm(LogY~., data = T_TrainLY)
+step.LY.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.LY.model)
+
+FittedValues<-step.LY.model$fitted.values
+
+#Most likely completely overfitted
+ValPredLY<-data.frame(predict(object=step.LY.model, newdata=T_Val,type = "response"))
+names(ValPredLY)<-"FittedValues"
+ValPred<-exp(ValPredLY)
+cor(ValPred,T_Val$SalePrice)
+
+data_f_tst<-subset(data_fg, Type!="train_set")
+
+
+LM_Pred_Train<-exp(rbind(data.frame(FittedValues),ValPredLY))
+
+
+LMPredLY<-predict(object=step.LY.model, newdata=data_f_tst, type = "response")
+LMPred<-exp(LMPredLY)
+LMUPload<-data.frame(cbind("Id"=data_f_tst$Id, "SalePrice" = LMPred))
+write.csv(LMUPload, "LM_Stepwise_tradLogY.csv", row.names = F)
+```
 
 After that we will do some feature engineering to see if there is an improvement
 
 These are unused codes
 
-```{r LM_LogY}
+Lasso regression is a technique that happily accommodates multi-colinear data so we can work on the data set called data_fg
 
-full.model <- lm(LogY~., data = T_Train_LY)
-step.LY.model <- stepAIC(full.model, direction = "both", trace = FALSE)
-summary(step.LY.model)
+```{r LASSO}
+library(glmnet)
+Lasso_Train = subset(data_fg, Type == "train_set")
+Lasso_Test  = subset(data_fg, Type == "test_set")
+
+LassoUpload<-data.frame("Id"= Lasso_Test$Id)
+
+#Remove the Y's for the matrix creation 
+Lasso_Test <- Lasso_Test[,2:(ncol(Lasso_Test)-1)]
+
+# START BY PULLING ALL DATA AS PER AN X MATRIX; Categorical data is dummy coded (one hot encoding)
+LTN_X <- model.matrix(SalePrice ~ . - 1 - Id - LogY - Type, data = Lasso_Train)
+LTT_X <- model.matrix(~ . - 1 - Id - Type , data = Lasso_Test)
+
+LTN_Y <- Lasso_Train$SalePrice
+
+# Define the cross-validation for lambda selection
+cv_nonstd <- cv.glmnet(LTN_X, LTN_Y, alpha = 1, nfolds = 10)
+
+plot(cv_nonstd) 
+
+# Fit the Lasso model with the best lambda
+best_lambda <- cv_nonstd$lambda.min
+
+lasso_model <- glmnet(LTN_X, LTN_Y, alpha = 1, lambda = best_lambda)
+
+coef(lasso_model)
+
+fitted_train<-predict(lasso_model, s = best_lambda, newx = LTN_X)
+fitted_test<-predict(lasso_model, s = best_lambda, newx = LTT_X)
+
+#Goodnessof Fit
+#No std
+cor(fitted_train,LTN_Y, method = "spearman")
+sst <- sum((LTN_Y - mean(LTN_Y))^2)
+sse <- sum((fitted_train - LTN_Y)^2)
+rsq <- 1 - sse/sst
+rsq
+
+lassoplot<-data.frame(fitted_train,"Actual"=LTN_Y)
+names(lassoplot)[1]<-"Fitted"
+
+ggplot(data = lassoplot, aes(x=Fitted, y = Actual))+
+  geom_jitter()+
+  ggtitle("Non Standardised Lasso Model Actual vs Fitted")
+
+LassoUpload$SalePrice<-fitted_test
+names(LassoUpload)[2]<-"SalePrice"
+str(LassoUpload)
+
+write.csv(LassoUpload, "Lasso.csv", row.names = FALSE)
+
 ```
 
-```{r}
-all.pred.train<-data.frame("Train_Actual" = T_Train[,1],
-  "LY_hat" =exp(predict(step.LY.model, T_Train_LY, type = "response")),
-                           "Y_hat" = use_mod_gamlog$fitted.values,
-  T_Train[,2:ncol(T_Train)])
+```{r RANDOMFOREST}
+library(randomForest)
+library(caret)
+library(ranger)
+#Establish baselines
+data_fg<-dplyr::select(data_fg, -"LogY")
+RF_Train = subset(data_fg, Type == "train_set")
+RF_Train <-RF_Train[,c(1,3:(ncol(RF_Train)-1))]
+RF_Test  = subset(data_fg, Type == "test_set") # has two more cols- type and id
 
-all.pred.train<-all.pred.train[order(all.pred.train$Train_Actual,decreasing = TRUE),]
-head(all.pred.train) 
+#Xcol<-ncol(LTN_X) # Set for Lasso model
+#What is the best tree number
+s<-1983
+set.seed(s)
+mod1 <- randomForest(
+  formula = SalePrice ~ .,
+  data    = RF_Train,
+  ntree   = 2000
+)
+mod1
+mod1$mtry # 28
+plot(mod1)
 
-boxdata <- tidyr::pivot_longer(all.pred.train[,c(1:3,14)], -Neighborhood)  
-ggplot(boxdata, aes(x=Neighborhood, y=value, color = name)) +    geom_boxplot() 
+which.min(mod1$mse) # Different every time; 1234 when ntree = 2000
+# RMSE of this optimal random forest
+sqrt(mod1$mse[which.min(mod1$mse)]) # $23K
+#mod1$importance
+varImpPlot(mod1) # Super similar to the choice of addition & order of the gamma GLM
 
-ggplot(all.pred.train, aes(x=LotArea))+
-  geom_jitter(aes(y = Train_Actual), color = "blue")+
-  geom_jitter(aes(y = LY_hat), color = "pink")+
-  geom_jitter(aes(y = Y_hat), color = "orange")
+rm(mod2)
+#Search & Tune
+mod2 <- tuneRF(
+  x          = RF_Train[,2:ncol(RF_Train)],
+  y          = RF_Train$SalePrice,
+  ntreeTry   = 600, # Previously set this to 2000, gave value of 33
+  mtryStart  = 5,
+  stepFactor = 1.5,
+  improve    = 0.01,
+  trace      = FALSE      # to not show real-time progress 
+)
+plot(mod2) # Shows the mtry optimum is at 22
 
-ggplot(all.preds.val, aes(x=LotArea))+
-  geom_jitter(aes(y = Val_actual), color = "blue")+
-  geom_jitter(aes(y = Pred_LMLog), color = "pink")+
-  geom_jitter(aes(y = AP), color = "orange")
+# Lets use train
+Cn <- trainControl(method="repeatedcv", number=5, repeats=3) 
+#metric <- "Accuracy"
+set.seed(s)
+tunegrid <- expand.grid(.mtry=22)
+RF_trainpackdef <- train(SalePrice~., data=RF_Train, method="rf",  tuneGrid=tunegrid, trControl=Cn)
+print(RF_trainpackdef)
 
-ggplot(all.preds.val, aes(x=(LotFrontage/LotArea)))+
-  geom_jitter(aes(y = Val_actual), color = "blue")+
-  geom_jitter(aes(y = Pred_LMLog), color = "pink")+
-  geom_jitter(aes(y = AP), color = "orange")
+# Random Search
+Rcontrol <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+rf_trainpackrandom <- train(SalePrice~., data=RF_Train, method="rf", tuneLength=5, trControl=Rcontrol)
+print(rf_trainpackrandom)
+plot(rf_trainpackrandom)
+
+rm(hyper_grid)
+# To reduce the search - start by checking the sample size; set to .75 & default
+hyper_grid <- expand.grid(
+  mtry       = seq(20, 34, by = 2),
+  node_size  = seq(3, 15, by = 2),
+  sampe_size = c(.632, .75, 0.8),
+  OOB_RMSE   = 0
+)
+
+# total number of combinations
+nrow(hyper_grid)
+## 168
+
+
+for(i in 1:nrow(hyper_grid)) {
+  
+  # train model with full grid search
+  gs_model <- ranger(
+    formula         = SalePrice ~ ., 
+    data            = RF_Train, 
+    num.trees       = 600,
+    mtry            = hyper_grid$mtry[i],
+    min.node.size   = hyper_grid$node_size[i],
+    sample.fraction = hyper_grid$sampe_size[i],
+    seed            = s
+  )
+  
+  # add OOB error to grid
+  hyper_grid$OOB_RMSE[i] <- sqrt(gs_model$prediction.error)
+}
+
+hyper_grid_res<-hyper_grid %>% 
+  dplyr::arrange(OOB_RMSE) %>%
+  head(20)
+
+hyper_grid_res
+
+optimal_ranger <- ranger(
+    formula         = SalePrice ~ ., 
+    data            = RF_Train, 
+    num.trees       = 600,
+    mtry            = 32,
+    min.node.size   = 3,
+    sample.fraction = .8,
+    importance      = 'impurity'
+  )
+  
+optimal_ranger$variable.importance %>% 
+  broom::tidy() %>%
+  dplyr::arrange(desc(x)) %>%
+  dplyr::top_n(25) %>%
+  ggplot(aes(reorder(names, x), x)) +
+  geom_col() +
+  coord_flip() +
+  ggtitle("Top 25 important variables")
+
+##SET UP THE PREDICTIONS
+
+
+
 
 ```
+
+```{r UNIFYTRAIN}
+AllTrain<-subset(data_fg,Type=="train_set")
+AllTrain<-dplyr::select(AllTrain, -"LogY")
+AllTrain<-AllTrain[,c(87,2:86,1)]
+AllTrain$Lasso<-lassoplot$Fitted
+glmyh<-predict(object = RefGamGLM, newdata = subset(GamData, Grp != "Test"), type = "response")
+AllTrain$BestGLM<-glmyh
+AllTrain$TradLogYtfm<-LM_Pred_Train$FittedValues
+
+
+ggplot(AllTrain)+geom_smooth(aes(x=SalePrice, y=BestGLM), colour = "red")+
+geom_smooth(aes(x=SalePrice, y=Lasso), colour = "blue")+
+geom_smooth(aes(x=SalePrice, y=TradLogYtfm), colour = "yellow")+
+  geom_smooth(aes(x=SalePrice, y = SalePrice), colour="black")
+
+```
+
+```{r UNIFYVAL}
+
+AllTest<-LassoUpload
+names(AllTest)[2]<-"Lasso"
+AllTest$BestGLM<-Sub2_GamGLM$Upload_Gam4
+AllTest$TradLogYLM<-LMUPload$SalePrice
+names(AllTest)
+
+ggplot(AllTest)+geom_jitter(aes(x=Id, y=BestGLM), colour = "red")+
+geom_jitter(aes(x=Id, y=Lasso), colour = "blue")+
+geom_jitter(aes(x=Id, y=TradLogYLM), colour = "yellow")
+head(AllTest)
+
+```
+
+
+
+```{r UNIFY}
+
+AllTest<-LassoUpload
+names(AllTest)[2]<-"Lasso"
+AllTest$BestGLM<-Sub2_GamGLM$Upload_Gam4
+AllTest$TradLogYLM<-LMUPload$SalePrice
+names(AllTest)
+
+ggplot(AllTest)+geom_jitter(aes(x=Id, y=BestGLM), colour = "red")+
+geom_jitter(aes(x=Id, y=Lasso), colour = "blue")+
+geom_jitter(aes(x=Id, y=TradLogYLM), colour = "yellow")
+head(AllTest)
+
+```
+
+
 
