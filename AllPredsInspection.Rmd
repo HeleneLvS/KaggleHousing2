@@ -1,0 +1,112 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+##clean out the space
+rm(list=ls())
+options(scipen=999)
+
+#Chunk options
+options(scipen=999) ###No scientific notifications
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message =  FALSE)
+```
+
+```{r libs}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+```
+
+```{r}
+getwd()
+setwd("C:/Users/helen/Documents/Kaggle/HousePrice/KaggleHousing")
+AllTestPreds<-read.csv("AllTestPreds.csv")
+str(AllTestPreds)
+#Double check that the GLM is in fact best; with any outliers above 500K, capped at that
+GLM<-AllTestPreds[,c(1,3)]
+names(GLM)[2]<-"SalePrice"
+#write.csv(GLM, "GLM.csv", row.names = FALSE)
+#Test passed
+
+#The GLM predicts large values larger than the other models as is evident from the training data set pictures. So lets tweak when to use which prediction. Theplan of action is:
+#1. Get the over all predictions for the best models: GLM, XGB, RFLogexp & Lasso
+#2. Then use the Fringe detector and use only the GLM for those cases. 
+#3. Assess
+ggplot(AllTestPreds)+
+geom_jitter(aes(x=BestGLM, y=BestGLM, colour = Fringe))+
+geom_jitter(aes(x=BestGLM, y=XGB_pred, colour = Fringe))+
+  ggtitle("Extreme values predicted")
+
+ggplot(AllTestPreds, aes(x=Fringe))+ geom_bar()
+
+
+AllTestPreds$AvgPred<-(AllTestPreds$Lasso+AllTestPreds$BestGLM+
+                    AllTestPreds$Ranger_RFlogexp+AllTestPreds$XGB_pred)/4
+Avgs<-cbind("Id" = AllTestPreds$Id,"SalePrice"=AllTestPreds$AvgPred)
+#write.csv(Avgs,"Avgs.csv", row.names = FALSE)
+
+#Using best GLM
+AllTestPreds$FringeAvg<-case_when(AllTestPreds$Fringe == 'High' ~ AllTestPreds$BestGLM,
+                                  TRUE ~ AllTestPreds$AvgPred)
+AvgFringe<-cbind("Id"=AllTestPreds$Id,"SalePrice"=AllTestPreds$FringeAvg)
+#write.csv(AvgFringe,"AvgFringe.csv", row.names = FALSE)
+
+#Using XGB
+AllTestPreds$FringeAvgXGB<-case_when(AllTestPreds$Fringe == 'High' ~ AllTestPreds$XGB_pred,
+                                  TRUE ~ AllTestPreds$AvgPred)
+FringeAvgXGB<-cbind("Id"=AllTestPreds$Id,"SalePrice"=AllTestPreds$FringeAvgXGB)
+#write.csv(FringeAvgXGB,"FringeAvgXGB.csv", row.names = FALSE)
+
+#Using LogLM
+AllTestPreds$FringeAvgLM<-case_when(AllTestPreds$Fringe == 'High' ~ AllTestPreds$TradLogYLM,
+                                  TRUE ~ AllTestPreds$AvgPred)
+FringeAvglogLM<-cbind("Id"=AllTestPreds$Id,"SalePrice"=AllTestPreds$FringeAvgLM)
+#write.csv(FringeAvglogLM,"FringeAvglogLM.csv", row.names = FALSE)
+
+#Lets swop it around...
+
+#Using best GLM
+AllTestPreds$FringeAvgLow<-case_when(AllTestPreds$Fringe == 'Low' ~ AllTestPreds$BestGLM,
+                                  TRUE ~ AllTestPreds$AvgPred)
+AvgFringeLowGLM<-cbind("Id"=AllTestPreds$Id,"SalePrice"=AllTestPreds$FringeAvgLow)
+#write.csv(AvgFringeLowGLM,"AvgFringeLowGLM.csv", row.names = FALSE)
+
+#Using XGB for under 100 & 250 only
+AllTestPreds$MnlXGB<-case_when(AllTestPreds$XGB_pred <= 100000 ~ AllTestPreds$XGB_pred,
+                                     AllTestPreds$XGB_pred >= 250000 ~ AllTestPreds$XGB_pred,
+                                     TRUE ~ AllTestPreds$AvgPred)
+AllTestPreds$Flag<-case_when(AllTestPreds$XGB_pred <= 100000 ~ 1,
+                                     AllTestPreds$XGB_pred >= 250000 ~ 1,
+                                     TRUE ~ 0)
+ggplot(AllTestPreds)+geom_bar(aes(x= Flag))
+MnlFrXGB<-cbind("Id"=AllTestPreds$Id,"SalePrice"=AllTestPreds$MnlXGB)
+#write.csv(MnlFrXGB,"MnlFrXGB.csv", row.names = FALSE)
+
+
+
+```
+
+```{r}
+ggplot(AllTestPreds)+#geom_jitter(aes(x=BestGLM, y=BestGLM), colour = "red")+
+geom_jitter(aes(x=BestGLM, y=Lasso), colour = "blue")+
+geom_jitter(aes(x=BestGLM, y=TradLogYLM), colour = "yellow")+
+geom_jitter(aes(x=BestGLM, y=XGB_pred), colour = "green")+
+geom_jitter(aes(x=BestGLM, y=Ranger_RFlogexp), colour = "purple")+
+  geom_jitter(aes(x=BestGLM, y=XGB_pred), colour = "pink")+
+  geom_smooth(aes(x=BestGLM, y=BestGLM), colour = "red")+
+  ggtitle("How the models differ")
+```
+```{r}
+AllTestX<-read.csv("data_f_tst.csv")
+
+Play<-cbind(AllTestX, AllTestPreds)
+
+write.csv(Play,"AllTest.csv", row.names = FALSE)
+```
+

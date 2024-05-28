@@ -33,9 +33,12 @@ library(pscl)
 library(GGally) #corrs
 library(MASS) # Stepwise
 library(data.table) # for melt
+library(patchwork)
+library(xgboost)
 #Not used lets remove later
 #library(stats)
-
+#install.packages("CHAID", repos = "http://R-Forge.R-project.org")
+library(CHAID)
 #Where will we work
 #getwd()
 setwd("C:/Users/helen/Documents/Kaggle/HousePrice/KaggleHousing")
@@ -380,6 +383,7 @@ data_fg$LogY<-log(data_fg$SalePrice)
 #test, train & val set
 data_f_tst<-subset(data_fg, Type!="train_set")
 data_f_tst<-data_f_tst[,-c(2)]
+write.csv(data_f_tst,"data_f_tst.csv", row.names = FALSE)
 data_f_t<-subset(data_fg, Type=="train_set")  
 data_f_t<-data_f_t[,-c(2)]
 
@@ -752,18 +756,19 @@ full.model <- lm(LogY~., data = T_TrainLY)
 step.LY.model <- stepAIC(full.model, direction = "both", trace = FALSE)
 summary(step.LY.model)
 
-FittedValues<-step.LY.model$fitted.values
+FittedValues<-predict(step.LY.model, data_f_t)
+FittedLY_trn<-exp(FittedValues)
 
-#Most likely completely overfitted
-ValPredLY<-data.frame(predict(object=step.LY.model, newdata=T_Val,type = "response"))
-names(ValPredLY)<-"FittedValues"
-ValPred<-exp(ValPredLY)
-cor(ValPred,T_Val$SalePrice)
-
-data_f_tst<-subset(data_fg, Type!="train_set")
-
-
-LM_Pred_Train<-exp(rbind(data.frame(FittedValues),ValPredLY))
+# #Most likely completely overfitted
+# ValPredLY<-data.frame(predict(object=step.LY.model, newdata=T_Val,type = "response"))
+# names(ValPredLY)<-"FittedValues"
+# ValPred<-exp(ValPredLY)
+# cor(ValPred,T_Val$SalePrice)
+# 
+# data_f_tst<-subset(data_fg, Type!="train_set")
+# 
+# 
+# LM_Pred_Train<-exp(rbind(data.frame(FittedValues),ValPredLY))
 
 
 LMPredLY<-predict(object=step.LY.model, newdata=data_f_tst, type = "response")
@@ -828,7 +833,7 @@ LassoUpload$SalePrice<-fitted_test
 names(LassoUpload)[2]<-"SalePrice"
 str(LassoUpload)
 
-write.csv(LassoUpload, "Lasso.csv", row.names = FALSE)
+#write.csv(LassoUpload, "Lasso.csv", row.names = FALSE)
 
 ```
 
@@ -901,23 +906,23 @@ hyper_grid <- expand.grid(
 nrow(hyper_grid)
 ## 168
 
-
-for(i in 1:nrow(hyper_grid)) {
-  
-  # train model with full grid search
-  gs_model <- ranger(
-    formula         = SalePrice ~ ., 
-    data            = RF_Train, 
-    num.trees       = 600,
-    mtry            = hyper_grid$mtry[i],
-    min.node.size   = hyper_grid$node_size[i],
-    sample.fraction = hyper_grid$sampe_size[i],
-    seed            = s
-  )
-  
-  # add OOB error to grid
-  hyper_grid$OOB_RMSE[i] <- sqrt(gs_model$prediction.error)
-}
+###DONT RUN THE TUNING UNLESS REQUIRED 
+# for(i in 1:nrow(hyper_grid)) {
+#   
+#   # train model with full grid search
+#   gs_model <- ranger(
+#     formula         = SalePrice ~ ., 
+#     data            = RF_Train, 
+#     num.trees       = 600,
+#     mtry            = hyper_grid$mtry[i],
+#     min.node.size   = hyper_grid$node_size[i],
+#     sample.fraction = hyper_grid$sampe_size[i],
+#     seed            = s
+#   )
+#   
+#   # add OOB error to grid
+#   hyper_grid$OOB_RMSE[i] <- sqrt(gs_model$prediction.error)
+# }
 
 hyper_grid_res<-hyper_grid %>% 
   dplyr::arrange(OOB_RMSE) %>%
@@ -934,7 +939,9 @@ optimal_ranger <- ranger(
     sample.fraction = .8,
     importance      = 'impurity'
   )
-  
+
+optimal_ranger  
+
 optimal_ranger$variable.importance %>% 
   broom::tidy() %>%
   dplyr::arrange(desc(x)) %>%
@@ -945,27 +952,309 @@ optimal_ranger$variable.importance %>%
   ggtitle("Top 25 important variables")
 
 ##SET UP THE PREDICTIONS
+#There are 4 models
+# mod1
+# RF_trainpackdef
+# rf_trainpackrandom
+# optimal_ranger
 
+#RandomForest package
+pred_mod1 <- predict(mod1, RF_Test)
+mod1_pred<-cbind("Id"=RF_Test$Id, "SalePrice"=pred_mod1)
+write.csv(mod1_pred, "RandomForest.csv", row.names = FALSE)
 
+#RF_train package
+pred_RFdef <- predict(RF_trainpackdef, RF_Test)
+RFdef_pred<-cbind("Id"=RF_Test$Id, pred_RFdef)
 
+pred_RFrd <- predict(rf_trainpackrandom, RF_Test)
+RFrand_pred<-cbind("Id"=RF_Test$Id,"SalePrice"=pred_RFrd)
+write.csv(RFrand_pred, "RFrand_pred.csv", row.names = FALSE)
+
+# ranger
+pred_ranger <- predict(optimal_ranger, RF_Test)
+#head(pred_ranger$predictions)
+ranger_pred<-data.frame(cbind("Id"=RF_Test$Id,"SalePrice"=pred_ranger$predictions))#BEST RF
+write.csv(ranger_pred, "ranger_pred.csv", row.names = FALSE)
+# Ranger has the best RF prediction
+ggplot(RFrand_pred, aes(x=Id, y = SalePrice))+geom_jitter()
+
+#Lets add one more using H20...
 
 ```
 
+```{r h20}
+# start up h2o 
+# library(h2o)
+# h2o.init()
+# h2o.no_progress()
+# h2o.init(max_mem_size = "5g")
+
+
+#Establish baselines
+#data_fg<-dplyr::select(data_fg, -"LogY")
+RF_Train2 = subset(data_fg, Type == "train_set")
+RF_Train2 <-RF_Train2[,c(1,3:(ncol(RF_Train2)-1))]
+RF_Test2  = subset(data_fg, Type == "test_set") # has two more cols- type and id
+RF_Train2$SalePrice<-log(RF_Train2$SalePrice)
+
+```
+
+```{r LogRF}
+#Xcol<-ncol(LTN_X) # Set for Lasso model
+#What is the best tree number
+
+s<-1983
+set.seed(s)
+mod1log <- randomForest(
+  formula = SalePrice ~ .,
+  data    = RF_Train2,
+  ntree   = 2000
+)
+# mod1log runs pretty long...
+mod1log
+mod1log$mtry # 28
+plot(mod1log)
+# Call:
+#  randomForest(formula = SalePrice ~ ., data = RF_Train2, ntree = 2000) 
+#                Type of random forest: regression
+#                      Number of trees: 2000
+# No. of variables tried at each split: 28
+# 
+#           Mean of squared residuals: 0.01712623
+#                     % Var explained: 88.33
+
+# To reduce the search - start by checking the sample size; set to .75 & default
+hyper_grid_log <- expand.grid(
+  mtry       = seq(20, 40, by = 2),
+  node_size  = seq(3, 15, by = 2),
+  sampe_size = c(.632, .75, 0.8),
+  OOB_RMSE   = 0
+)
+
+# total number of combinations
+nrow(hyper_grid_log) #231
+
+##DONT RUN THE TUNING UNLESS ITS NECESSARY
+# for(i in 1:nrow(hyper_grid_log)) {
+#   
+#   # train model with full grid search
+#   gslog_model <- ranger(
+#     formula         = SalePrice ~ ., 
+#     data            = RF_Train2, 
+#     num.trees       = 500, # test for others later
+#     mtry            = hyper_grid_log$mtry[i],
+#     min.node.size   = hyper_grid_log$node_size[i],
+#     sample.fraction = hyper_grid_log$sampe_size[i],
+#     seed            = s
+#   )
+#     # add OOB error to grid
+#   hyper_grid_log$OOB_RMSE[i] <- sqrt(gslog_model$prediction.error)
+# }
+
+hyper_grid_log_res<-hyper_grid_log %>% 
+  dplyr::arrange(OOB_RMSE) %>%
+  head(20)
+
+hyper_grid_log_res
+
+optimal_ranger_log500 <- ranger(
+    formula         = SalePrice ~ ., 
+    data            = RF_Train2, 
+    num.trees       = 500,
+    mtry            = 24,
+    min.node.size   = 5,
+    sample.fraction = .8,
+    importance      = 'impurity'
+  )
+optimal_ranger_log500
+sqrt(optimal_ranger_log500$prediction.error)
+#24,5,80% = 0.130
+
+pred_ranger_log <- predict(optimal_ranger_log500, RF_Test)
+pred_ranger_log <- exp(pred_ranger_log$predictions)
+#head(pred_ranger$predictions)
+ranger_pred_logexp<-data.frame(cbind("Id"=RF_Test$Id,"SalePrice"=pred_ranger_log))
+#write.csv(ranger_pred_logexp, "ranger_pred_logexp.csv", row.names = FALSE)
+
+```
+
+```{r XGB}
+set.seed(22)
+XGB<-subset(data_fg, Type == "train_set")
+sample2 = sample.split(XGB$SalePrice, SplitRatio = .85)
+
+XGB$TotalArea<-XGB$TotalBsmtSF+XGB$GrLivArea
+
+XGB_Train = subset(XGB, sample2 == TRUE)
+XGB_Val  = subset(XGB, sample2 == FALSE)
+XGB_Test =subset(data_fg, Type != "train_set") 
+
+#define predictor and response variables in training & validation set
+train_x = data.matrix(XGB_Train[, -1])
+train_y = XGB_Train[,1]
+val_x = data.matrix(XGB_Val[, -1])
+val_y = XGB_Val[, 1]
+test_x = data.matrix(XGB_Test[, -1])
+
+#set the format to correct xgb data type
+xgb_train = xgb.DMatrix(data = train_x, label = train_y)
+xgb_val = xgb.DMatrix(data = val_x, label = val_y)
+
+#defining a watchlist
+watchlist = list(train=xgb_train, test=xgb_val)
+
+#fit XGBoost model and display training and testing data at each iteartion
+model3 = xgb.train(data = xgb_train, max.depth = 3, watchlist=watchlist, nrounds = 200)
+model5 = xgb.train(data = xgb_train, max.depth = 5, watchlist=watchlist, nrounds = 200)
+
+pldata3<-as.data.frame(cbind("train_rmse"=model3$evaluation_log$train_rmse, 
+              "val_rmse"=model3$evaluation_log$test_rmse, 
+              "iter"=model3$evaluation_log$iter))
+ggplot(data = pldata3, aes(x=iter))+geom_line(aes(y=train_rmse))+ 
+  geom_line(aes(y=val_rmse), colour = "red") 
+#Lowest at 184, first increase is at 18 (MAX DEPTH = 3, NROUND = 200) rmse 6.5 & 19k
+
+pldata5<-as.data.frame(cbind("train_rmse"=model5$evaluation_log$train_rmse, 
+              "val_rmse"=model5$evaluation_log$test_rmse, 
+              "iter"=model5$evaluation_log$iter))
+ggplot(data = pldata5, aes(x=iter))+geom_line(aes(y=train_rmse))+ 
+  geom_line(aes(y=val_rmse), colour = "red")  
+#Lowest at 10, first increase is at 18 (MAX DEPTH = 3, NROUND = 200) rmse 15 & 21k
+
+finalGBM<-xgboost(data = xgb_train, max.depth = 3, nrounds = 184, verbose = 0)
+summary(finalGBM)
+
+#use model to make predictions on validation data
+pred_val = predict(finalGBM, xgb_val)
+validation<-as.data.frame(cbind(val_y,pred_val  ))
+
+
+ggplot(validation)+ geom_jitter(aes(x=val_y, y = pred_val), colour="blue")+
+  geom_smooth(aes(x=val_y, y = pred_val), colour = "blue")
+cor(validation$val_y, validation$pred_val)
+
+#For the submission (Test File):
+XGB_pred<-predict(finalGBM,test_x)
+XGB_subm<-cbind("Id"=XGB_Test[,c("Id")],"SalePrice"=XGB_pred)
+write.csv(XGB_subm, "XGB_subm.csv", row.names = FALSE)
+
+```
+
+```{r XGBONEHOT}
+set.seed(83)
+XGBOH<-subset(data_fg, Type == "train_set")
+sample2 = sample.split(XGBOH$SalePrice, SplitRatio = .85)
+
+XGBOH$TotalArea<-XGBOH$TotalBsmtSF+XGBOH$GrLivArea
+
+XGBOH_Train = subset(XGBOH, sample2 == TRUE)
+XGBOH_Val  = subset(XGBOH, sample2 == FALSE)
+XGOH_Test =subset(data_fg, Type != "train_set") 
+XGOH_Test$TotalArea<-XGOH_Test$TotalBsmtSF+XGOH_Test$GrLivArea
+XGOH_Test<-XGOH_Test[, -c(1,2)]
+
+# START BY PULLING ALL DATA AS PER AN X MATRIX; 
+# Categorical data is dummy coded (one hot encoding)
+
+XTN_X <- model.matrix(SalePrice ~ . - 1 - Id - Type, data = XGBOH_Train)
+XVN_X <- model.matrix(SalePrice ~ . - 1 - Id - Type, data = XGBOH_Val)
+
+XTT_X <- model.matrix(~.-1-Id, XGOH_Test)
+
+XTN_Y <- XGBOH_Train$SalePrice
+XVN_Y <- XGBOH_Val$SalePrice
+
+#define predictor and response variables in training & validation set
+# train_x = data.matrix(XGB_Train[, -1])
+# train_y = XGB_Train[,1]
+# val_x = data.matrix(XGB_Val[, -1])
+# val_y = XGB_Val[, 1]
+# test_x = data.matrix(XGB_Test[, -1])
+
+#set the format to correct xgb data type
+xgb_train_oh = xgb.DMatrix(data = XTN_X, label = XTN_Y)
+xgb_val_oh = xgb.DMatrix(data = XVN_X, label = XVN_Y)
+
+#defining a watchlist
+watchlist = list(train=xgb_train_oh, test=xgb_val_oh)
+
+#fit XGBoost model and display training and testing data at each iteartion
+model3 = xgb.train(data = xgb_train_oh, max.depth = 3, watchlist=watchlist, nrounds = 200)
+model4 = xgb.train(data = xgb_train_oh, max.depth = 4, watchlist=watchlist, nrounds = 200)
+model5 = xgb.train(data = xgb_train_oh, max.depth = 5, watchlist=watchlist, nrounds = 200)
+
+pldata3<-as.data.frame(cbind("train_rmse"=model3$evaluation_log$train_rmse, 
+              "val_rmse"=model3$evaluation_log$test_rmse, 
+              "iter"=model3$evaluation_log$iter))
+ggplot(data = pldata3, aes(x=iter))+geom_line(aes(y=train_rmse))+ 
+  geom_line(aes(y=val_rmse), colour = "red") 
+#Lowest at 18, first increase is at 15 (MAX DEPTH = 3, NROUND = 200) rmse 19 & 18
+
+pldata4<-as.data.frame(cbind("train_rmse"=model4$evaluation_log$train_rmse, 
+              "val_rmse"=model4$evaluation_log$test_rmse, 
+              "iter"=model4$evaluation_log$iter))
+#38 with rmse 10 & 18k
+
+pldata5<-as.data.frame(cbind("train_rmse"=model5$evaluation_log$train_rmse, 
+              "val_rmse"=model5$evaluation_log$test_rmse, 
+              "iter"=model5$evaluation_log$iter))
+ggplot(data = pldata5, aes(x=iter))+geom_line(aes(y=train_rmse))+ 
+  geom_line(aes(y=val_rmse), colour = "red")  
+#Lowest at 33, first increase is at 28 (MAX DEPTH = 5, NROUND = 200) rmse 8 & 19k
+
+finalGBMOH<-xgboost(data = xgb_train_oh, max.depth = 4, nrounds = 38, verbose = 0)
+summary(finalGBMOH)
+
+#use model to make predictions on validation data
+pred_val_oh = predict(finalGBMOH, xgb_val_oh)
+validationOH<-as.data.frame(cbind(XVN_Y,pred_val_oh ))
+
+
+ggplot(validationOH)+ geom_jitter(aes(x=XVN_Y, y = pred_val_oh), colour="blue")+
+  geom_smooth(method = "lm", aes(x=XVN_Y, y = pred_val_oh), colour = "blue")
+cor(validationOH$XVN_Y, validationOH$pred_val_oh)
+
+#For the submission (Test File):
+XGBOH_pred<-predict(finalGBMOH,newdata = XTT_X)
+XGBOH_subm<-cbind("Id"=XGOH_Test[,c("Id")],"SalePrice"=XGBOH_pred)
+write.csv(XGBOH_subm, "XGBOH_subm.csv", row.names = FALSE)
+
+```
+
+
 ```{r UNIFYTRAIN}
 AllTrain<-subset(data_fg,Type=="train_set")
-AllTrain<-dplyr::select(AllTrain, -"LogY")
+#AllTrain<-dplyr::select(AllTrain, -"LogY")
 AllTrain<-AllTrain[,c(87,2:86,1)]
 AllTrain$Lasso<-lassoplot$Fitted
 glmyh<-predict(object = RefGamGLM, newdata = subset(GamData, Grp != "Test"), type = "response")
 AllTrain$BestGLM<-glmyh
+
 AllTrain$TradLogYtfm<-LM_Pred_Train$FittedValues
 
+AllTrain$TradLogYtfm<-FittedLY_trn
+AllTrain$Ranger_RFasis<-optimal_ranger$predictions
+AllTrain$Ranger_RFlogexp<-exp(optimal_ranger_log500$predictions)
+# Sort the following by ID
+
+combo<-as.data.frame(rbind(train_x,val_x))
+combo<-combo[order(combo$Id),]
+combo_x = data.matrix(combo)
+XGB_predT<-predict(finalGBM,combo_x)
+AllTrain$XGB_pred<-XGB_predT
+
+ggplot(AllTrain)+geom_jitter(aes(x=SalePrice, y = XGB_pred))
 
 ggplot(AllTrain)+geom_smooth(aes(x=SalePrice, y=BestGLM), colour = "red")+
 geom_smooth(aes(x=SalePrice, y=Lasso), colour = "blue")+
-geom_smooth(aes(x=SalePrice, y=TradLogYtfm), colour = "yellow")+
-  geom_smooth(aes(x=SalePrice, y = SalePrice), colour="black")
-
+ geom_smooth(aes(x=SalePrice, y=TradLogYtfm), colour = "yellow")+
+ geom_smooth(aes(x=SalePrice, y=Ranger_RFasis), colour = "green")+
+ geom_smooth(aes(x=SalePrice, y=Ranger_RFlogexp), colour = "purple")+
+  geom_smooth(aes(x=SalePrice, y=XGB_pred), colour = "pink")+
+  geom_smooth(aes(x=SalePrice, y = SalePrice), colour="black")+
+  ggtitle("Models Predict poorly on the fringes; under 100K and above 300K")
+#IS IT POSSIBLE TO UNDERSTAND WHY THIS HAPPENS _ WHICH FACTOR IS BEST FOR THAT?
 ```
 
 ```{r UNIFYVAL}
@@ -974,31 +1263,75 @@ AllTest<-LassoUpload
 names(AllTest)[2]<-"Lasso"
 AllTest$BestGLM<-Sub2_GamGLM$Upload_Gam4
 AllTest$TradLogYLM<-LMUPload$SalePrice
+AllTest$Ranger_RFasis<-ranger_pred$SalePrice
+AllTest$Ranger_RFlogexp<-ranger_pred_logexp$SalePrice
+AllTest$XGB_pred<-XGB_pred
+AllTest$XGBOH_pred<-(as.data.frame(XGBOH_subm))$SalePrice
+
 names(AllTest)
 
-ggplot(AllTest)+geom_jitter(aes(x=Id, y=BestGLM), colour = "red")+
-geom_jitter(aes(x=Id, y=Lasso), colour = "blue")+
-geom_jitter(aes(x=Id, y=TradLogYLM), colour = "yellow")
+ggplot(AllTest)+#geom_jitter(aes(x=BestGLM, y=BestGLM), colour = "red")+
+geom_jitter(aes(x=BestGLM, y=Lasso), colour = "blue")+
+geom_jitter(aes(x=BestGLM, y=TradLogYLM), colour = "yellow")+
+geom_jitter(aes(x=BestGLM, y=XGB_pred), colour = "green")+
+geom_jitter(aes(x=BestGLM, y=Ranger_RFlogexp), colour = "purple")+
+  geom_jitter(aes(x=BestGLM, y=XGB_pred), colour = "pink")+
+  geom_smooth(aes(x=BestGLM, y=BestGLM), colour = "red")+
+  ggtitle("How the models differ")
 head(AllTest)
+
+ggplot(AllTest)+ geom_point(aes(x=BestGLM, y = Ranger_RFlogexp))
 
 ```
 
+```{r FRINGECHECKS}
+RF_Train$SP_Bin<-as.factor(case_when(RF_Train$SalePrice>250000 ~ "High",
+                           #RF_Train$SalePrice<=100000 ~1,
+                           TRUE~"Low"))
+barchart(RF_Train$SP_Bin)
+library(partykit)
+
+#Pick only the categoricals
+catv <- sapply(RF_Train, is.factor)
+colcv<-names(RF_Train[,catv])
+CHAID_TRAIN<-RF_Train[,colcv]
+cntrl<-chaid_control(maxheight = 5, minsplit = 100 , minprob = 0.05)
+CHAIDCHECK <- chaid(SP_Bin ~ ., control = cntrl, data = CHAID_TRAIN)
+print(CHAIDCHECK)
+plot(CHAIDCHECK)
+plot(
+  CHAIDCHECK,
+  main = "Testing More Graphical Options",
+  gp = gpar(
+    col = "blue",
+    lty = "solid",
+    lwd = 3,
+    fontsize = 5
+  )
+)
+
+chaid_pred<-predict(CHAIDCHECK)
+confusionMatrix(chaid_pred, CHAID_TRAIN$SP_Bin)
+#maxheight = 5, minsplit = 100 , minprob = 0.1 => 92% acc/ 82% balanced Acc/ sens = 68%
+#(maxheight = 5, minsplit = 50 , minprob = 0.1) =>93% / 80%/62%
+# (maxheight = 5, minsplit = 200 , minprob = 0.1) =>91%/78%/58%
+#(maxheight = 5, minsplit = 100 , minprob = 0.05)92%/83%/69% # winner
+
+AllTrain$Fringe<-chaid_pred
+AllTest$Fringe<-predict(CHAIDCHECK, newdata=RF_Test)
+write.csv(AllTest, "AllTestPreds.csv", row.names = FALSE)
 
 
-```{r UNIFY}
+Fringe_Train<-subset(AllTrain, Fringe == "High")
+#create_report(Fringe_Train)
 
-AllTest<-LassoUpload
-names(AllTest)[2]<-"Lasso"
-AllTest$BestGLM<-Sub2_GamGLM$Upload_Gam4
-AllTest$TradLogYLM<-LMUPload$SalePrice
-names(AllTest)
+A<-ggplot(data = Fringe_Train, aes(x=OverallQual, y = SalePrice))+ geom_jitter()+geom_smooth(method = lm)
+B<-ggplot(data = AllTrain, aes(x=OverallQual, y = SalePrice))+ geom_jitter()+geom_smooth(method = lm)
 
-ggplot(AllTest)+geom_jitter(aes(x=Id, y=BestGLM), colour = "red")+
-geom_jitter(aes(x=Id, y=Lasso), colour = "blue")+
-geom_jitter(aes(x=Id, y=TradLogYLM), colour = "yellow")
-head(AllTest)
-
+A+B
 ```
 
-
+```{r}
+top250k_data<-
+```
 
